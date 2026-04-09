@@ -15,13 +15,14 @@ function transitColor(t) {
   return transitColors[t] || 'bg-blue-50 text-blue-800'
 }
 
-export default function TrailCard({ trail, isSelected, onClick, onPlan }) {
+export default function TrailCard({ trail, isSelected, onClick, cardRef }) {
   const total = trail.transitMin + trail.walkMin
   const isBus = ['Bus', 'Coach', 'Transbridge', 'Short Line', 'Trailways', 'Red & Tan'].some(k => trail.line.includes(k))
   const transitLabel = isBus ? 'Bus' : trail.transitType
 
   return (
     <div
+      ref={cardRef}
       className={`trail-card bg-white rounded-xl border cursor-pointer ${isSelected ? 'selected border-forest-600' : 'border-gray-100'}`}
       onClick={onClick}
     >
@@ -77,11 +78,14 @@ export default function TrailCard({ trail, isSelected, onClick, onPlan }) {
       {/* Expanded detail */}
       {isSelected && (
         <div className="border-t border-gray-100 px-4 py-3 bg-gray-50 rounded-b-xl">
-          <p className="text-sm text-gray-600 mb-2 leading-relaxed">{trail.desc}</p>
+          <p className="text-sm text-gray-600 mb-3 leading-relaxed">{trail.desc}</p>
 
-          <div className="mb-2">
-            <span className="text-xs font-medium text-gray-700">Walk to trailhead: </span>
-            <span className="text-xs text-gray-500">{trail.walkNote}</span>
+          {/* Station info */}
+          <div className="bg-blue-50 rounded-lg px-3 py-2.5 mb-3">
+            <div className="text-[10px] text-blue-400 uppercase tracking-wide font-medium mb-1">Closest station / stop</div>
+            <div className="text-sm font-semibold text-blue-900">{trail.station}</div>
+            <div className="text-xs text-blue-700 mt-0.5">{trail.line}</div>
+            <div className="text-xs text-blue-600 mt-1">{trail.walkMin} min walk · {trail.walkMi} mi — {trail.walkNote}</div>
           </div>
 
           <div className="mb-3">
@@ -95,24 +99,15 @@ export default function TrailCard({ trail, isSelected, onClick, onPlan }) {
             </div>
           )}
 
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={e => { e.stopPropagation(); onPlan() }}
-              className="text-xs bg-forest-600 text-white px-3 py-1.5 rounded-lg hover:bg-forest-800 transition-colors font-medium"
-              style={{ background: '#2d7a2d' }}
-            >
-              Plan this trip with AI
-            </button>
-            <a
-              href={trail.alltrails}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={e => e.stopPropagation()}
-              className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-white transition-colors text-gray-600"
-            >
-              View on AllTrails ↗
-            </a>
-          </div>
+          <a
+            href={trail.alltrails}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
+            className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-white transition-colors text-gray-600 inline-block"
+          >
+            View on AllTrails ↗
+          </a>
         </div>
       )}
     </div>

@@ -1,10 +1,9 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useCallback } from 'react'
 import Head from 'next/head'
 import dynamic from 'next/dynamic'
 import trails from '../data/trails.json'
 import TrailCard from '../components/TrailCard'
 import Filters from '../components/Filters'
-import TripPlanner from '../components/TripPlanner'
 
 const TrailMap = dynamic(() => import('../components/TrailMap'), { ssr: false })
 
@@ -17,7 +16,20 @@ export default function Home() {
     minLengthMi: 0,
   })
   const [selectedTrail, setSelectedTrail] = useState(null)
-  const [plannerTrail, setPlannerTrail] = useState(null)
+  const cardRefs = useRef({})
+
+  // Called when a map marker is clicked — selects trail AND scrolls card into view
+  const handleMapSelect = useCallback((trail) => {
+    setSelectedTrail(prev => {
+      const next = prev?.id === trail?.id ? null : trail
+      if (next) {
+        setTimeout(() => {
+          cardRefs.current[next.id]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 50)
+      }
+      return next
+    })
+  }, [])
 
   const filtered = useMemo(() => {
     return trails.filter(t => {
@@ -80,7 +92,7 @@ export default function Home() {
                     trail={trail}
                     isSelected={selectedTrail?.id === trail.id}
                     onClick={() => setSelectedTrail(selectedTrail?.id === trail.id ? null : trail)}
-                    onPlan={() => setPlannerTrail(trail)}
+                    cardRef={el => cardRefs.current[trail.id] = el}
                   />
                 ))}
               </div>
@@ -97,20 +109,12 @@ export default function Home() {
               <TrailMap
                 trails={filtered}
                 selectedTrail={selectedTrail}
-                onSelectTrail={setSelectedTrail}
+                onSelectTrail={handleMapSelect}
               />
             </div>
           </div>
         </div>
       </div>
-
-      {/* Trip planner modal */}
-      {plannerTrail && (
-        <TripPlanner
-          trail={plannerTrail}
-          onClose={() => setPlannerTrail(null)}
-        />
-      )}
     </>
   )
 }
