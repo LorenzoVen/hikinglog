@@ -1,0 +1,35 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import 'mapbox-gl/dist/mapbox-gl.css';
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #f8f7f4;
+  color: #1a1a1a;
+}
+
+.mapboxgl-map {
+  border-radius: 12px;
+}
+
+.trail-card {
+  transition: box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+.trail-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+
+.trail-card.selected {
+  box-shadow: 0 0 0 2px #2d7a2d;
+}
