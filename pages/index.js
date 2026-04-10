@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import Head from 'next/head'
 import dynamic from 'next/dynamic'
 import trails from '../data/trails.json'
@@ -86,38 +86,26 @@ export default function Home() {
     })
   }, [filters, search, showFavoritesOnly, favorites])
 
-  // Scroll selected card into view within its container
+  // Scroll selected card into view
   function scrollToCard(trailId, containerRef) {
-    requestAnimationFrame(() => {
+    setTimeout(() => {
       const card = cardRefs.current[trailId]
-      const container = containerRef.current
-      if (!card || !container) return
-      // offsetTop is relative to offsetParent — walk up to find offset within container
-      let offsetTop = 0
-      let el = card
-      while (el && el !== container) {
-        offsetTop += el.offsetTop
-        el = el.offsetParent
-      }
-      const scrollTo = offsetTop - (container.clientHeight / 2) + (card.offsetHeight / 2)
-      container.scrollTo({ top: scrollTo, behavior: 'smooth' })
-    })
+      if (!card) return
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 0)
   }
 
-  const handleMapSelect = useCallback((trail) => {
-    setSelectedTrail(prev => {
-      const next = prev?.id === trail?.id ? null : trail
-      if (next) {
-        setView('list')
-        // Small delay to ensure list view is rendered before scrolling
-        setTimeout(() => {
-          scrollToCard(next.id, desktopListRef)
-          scrollToCard(next.id, mobileListRef)
-        }, 150)
-      }
-      return next
-    })
-  }, [])
+  function handleMapSelect(trail) {
+    const isSame = selectedTrail?.id === trail?.id
+    if (isSame) { setSelectedTrail(null); return }
+    setSelectedTrail(trail)
+    setView('list')
+    // Two-step: first render the selection, then scroll
+    setTimeout(() => {
+      scrollToCard(trail.id, desktopListRef)
+      scrollToCard(trail.id, mobileListRef)
+    }, 200)
+  }
 
   // Also scroll when a card is selected from the list (so it stays centred after expand)
   function handleCardClick(trail) {
