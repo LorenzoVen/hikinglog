@@ -266,8 +266,8 @@ export default function Home() {
             <div className="flex-shrink-0">{FilterPanel}</div>
             <CardList containerRef={desktopListRef} />
           </div>
-          {/* Right: sticky map */}
-          <div className="flex-1 min-h-0">
+          {/* Right: sticky map — explicit height required for Mapbox GL */}
+          <div className="flex-1" style={{ height: "calc(100vh - 80px)", position: "sticky", top: "61px" }}>
             <TrailMap trails={filtered} selectedTrail={selectedTrail} onSelectTrail={handleMapSelect} />
           </div>
         </div>
@@ -278,7 +278,7 @@ export default function Home() {
           {view === 'list' ? (
             <CardList containerRef={mobileListRef} />
           ) : (
-            <div className="flex-1 min-h-0">
+            <div style={{ height: "calc(100vh - 180px)" }}>
               <TrailMap trails={filtered} selectedTrail={selectedTrail} onSelectTrail={handleMapSelect} />
             </div>
           )}
