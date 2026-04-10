@@ -6,7 +6,7 @@ const transitColors = {
   'LIRR':        'bg-blue-50 text-blue-800',
 }
 
-export default function TrailCard({ trail, isSelected, onClick, cardRef, onPlan }) {
+export default function TrailCard({ trail, isSelected, isFavorite, reviewCount, onClick, cardRef, onPlan, onToggleFavorite }) {
   const { fmtDist, fmtElev } = useUnits()
   const total = (trail.transitMin || 0) + (trail.walkMin || 0)
   const operator = trail.transitType || trail.operator || 'Transit'
@@ -15,9 +15,6 @@ export default function TrailCard({ trail, isSelected, onClick, cardRef, onPlan 
   const transitLabel = isBus ? 'Bus' : operator
   const location = trail.location || trail.station || ''
   const hasMetadata = trail.difficulty || trail.lengthMi || trail.elevFt
-
-  // Latest trail report summary (from reports array if present)
-  const latestReport = trail.latestReport
 
   return (
     <div
@@ -28,13 +25,23 @@ export default function TrailCard({ trail, isSelected, onClick, cardRef, onPlan 
       <div className="p-4">
         {/* Top row */}
         <div className="flex justify-between items-start gap-2 mb-2">
-          <div className="min-w-0">
-            <h3 className="font-medium text-gray-900 text-sm leading-snug">{trail.name}</h3>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-medium text-gray-900 text-sm leading-snug pr-2">{trail.name}</h3>
             {location && <p className="text-xs text-gray-500 mt-0.5 truncate">{location}</p>}
           </div>
-          <div className="text-right shrink-0">
-            <div className="text-sm font-semibold text-gray-800">{total} min</div>
-            <div className="text-xs text-gray-400">total</div>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Favorite heart */}
+            <button
+              onClick={onToggleFavorite}
+              className={`text-lg leading-none transition-colors ${isFavorite ? 'text-red-500' : 'text-gray-300 hover:text-red-400'}`}
+              title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+            >
+              {isFavorite ? '♥' : '♡'}
+            </button>
+            <div className="text-right">
+              <div className="text-sm font-semibold text-gray-800">{total} min</div>
+              <div className="text-xs text-gray-400">total</div>
+            </div>
           </div>
         </div>
 
@@ -52,8 +59,8 @@ export default function TrailCard({ trail, isSelected, onClick, cardRef, onPlan 
           </div>
         </div>
 
-        {/* Badges — only operator, difficulty if present, seasonal */}
-        <div className="flex flex-wrap gap-1.5 mb-2">
+        {/* Badges */}
+        <div className="flex flex-wrap items-center gap-1.5">
           <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${transitColors[transitLabel] || 'bg-blue-50 text-blue-800'}`}>
             {transitLabel}
           </span>
@@ -61,27 +68,26 @@ export default function TrailCard({ trail, isSelected, onClick, cardRef, onPlan 
             <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
               trail.difficulty === 'Easy' ? 'bg-green-50 text-green-800' :
               trail.difficulty === 'Moderate' ? 'bg-amber-50 text-amber-800' :
-              'bg-red-50 text-red-800'
-            }`}>{trail.difficulty}</span>
+              'bg-red-50 text-red-800'}`}>
+              {trail.difficulty}
+            </span>
           )}
           {trail.seasonal && (
             <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-orange-50 text-orange-700">Seasonal</span>
           )}
+          {/* Review count */}
+          {reviewCount > 0 && (
+            <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600 ml-auto">
+              {reviewCount} review{reviewCount !== 1 ? 's' : ''}
+            </span>
+          )}
         </div>
 
-        {/* Trail stats — only if populated */}
+        {/* Trail stats */}
         {hasMetadata && (
-          <div className="flex gap-4 text-xs text-gray-500">
+          <div className="flex gap-4 text-xs text-gray-500 mt-2">
             {trail.elevFt != null && <span>↕ {fmtElev(trail.elevFt)} gain</span>}
             {trail.lengthMi != null && <span>↔ {fmtDist(trail.lengthMi)}</span>}
-          </div>
-        )}
-
-        {/* Latest community report — show if available */}
-        {latestReport && (
-          <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
-            {latestReport.crowdedness && <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">👥 {latestReport.crowdedness}</span>}
-            {latestReport.trail_condition && <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">🥾 {latestReport.trail_condition}</span>}
           </div>
         )}
       </div>
@@ -89,7 +95,6 @@ export default function TrailCard({ trail, isSelected, onClick, cardRef, onPlan 
       {/* Expanded detail */}
       {isSelected && (
         <div className="border-t border-gray-100 px-4 py-3 bg-gray-50 rounded-b-xl">
-
           {trail.desc && (
             <p className="text-sm text-gray-600 mb-3 leading-relaxed">{trail.desc}</p>
           )}
@@ -121,19 +126,15 @@ export default function TrailCard({ trail, isSelected, onClick, cardRef, onPlan 
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={e => { e.stopPropagation(); onPlan() }}
-              className="text-xs text-white px-3 py-1.5 rounded-lg font-medium transition-colors"
+              className="text-xs text-white px-3 py-1.5 rounded-lg font-medium"
               style={{ background: '#2d7a2d' }}
             >
               Plan this hike →
             </button>
             {trail.alltrails && (
-              <a
-                href={trail.alltrails}
-                target="_blank"
-                rel="noopener noreferrer"
+              <a href={trail.alltrails} target="_blank" rel="noopener noreferrer"
                 onClick={e => e.stopPropagation()}
-                className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-white transition-colors text-gray-600"
-              >
+                className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-white transition-colors text-gray-600">
                 AllTrails ↗
               </a>
             )}

@@ -7,25 +7,64 @@ import Filters from '../components/Filters'
 import PlanModal from '../components/PlanModal'
 import AuthModal from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 
 const TrailMap = dynamic(() => import('../components/TrailMap'), { ssr: false })
 
 export default function Home() {
   const { user, signOut } = useAuth()
-  const [filters, setFilters] = useState({
-    transit: 'all',
-    maxTotalMin: 150,
-    maxWalkMin: 60,
-  })
+  const [filters, setFilters] = useState({ transit: 'all', maxTotalMin: 150, maxWalkMin: 60 })
+  const [search, setSearch] = useState('')
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
+  const [favorites, setFavorites] = useState(new Set()) // Set of trail_id strings
+  const [reviewCounts, setReviewCounts] = useState({}) // trail_id -> count
   const [selectedTrail, setSelectedTrail] = useState(null)
   const [planTrail, setPlanTrail] = useState(null)
   const [showAuth, setShowAuth] = useState(false)
-  const [showMap, setShowMap] = useState(false)
-  const [showFilters, setShowFilters] = useState(false)
-  const [view, setView] = useState('list') // 'list' | 'map' — mobile only
+  const [view, setView] = useState('list')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const listRef = useRef(null)
   const cardRefs = useRef({})
 
+  // Load favorites when user logs in
+  useEffect(() => {
+    async function loadFavorites() {
+      if (!user || !supabase) { setFavorites(new Set()); return }
+      const { data } = await supabase.from('favorites').select('trail_id').eq('user_id', user.id)
+      setFavorites(new Set((data || []).map(r => String(r.trail_id))))
+    }
+    loadFavorites()
+  }, [user])
+
+  // Load review counts for all trails (no login needed — public data)
+  useEffect(() => {
+    async function loadCounts() {
+      if (!supabase) return
+      const { data } = await supabase.from('trail_reports').select('trail_id')
+      if (!data) return
+      const counts = {}
+      data.forEach(r => { counts[r.trail_id] = (counts[r.trail_id] || 0) + 1 })
+      setReviewCounts(counts)
+    }
+    loadCounts()
+  }, [])
+
+  async function toggleFavorite(trailId, e) {
+    e?.stopPropagation()
+    if (!user) { setShowAuth(true); return }
+    if (!supabase) return
+    const id = String(trailId)
+    if (favorites.has(id)) {
+      setFavorites(prev => { const n = new Set(prev); n.delete(id); return n })
+      await supabase.from('favorites').delete().eq('user_id', user.id).eq('trail_id', id)
+    } else {
+      setFavorites(prev => new Set([...prev, id]))
+      await supabase.from('favorites').insert({ user_id: user.id, trail_id: id })
+    }
+  }
+
   const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
     return trails.filter(t => {
       const total = (t.transitMin || 0) + (t.walkMin || 0)
       const lineStr = t.line || t.operator || ''
@@ -37,17 +76,33 @@ export default function Home() {
       }
       if (total > filters.maxTotalMin) return false
       if ((t.walkMin || 0) > filters.maxWalkMin) return false
+      if (showFavoritesOnly && !favorites.has(String(t.id))) return false
+      if (q) {
+        const name = (t.name || '').toLowerCase()
+        const station = (t.station || '').toLowerCase()
+        if (!name.includes(q) && !station.includes(q)) return false
+      }
       return true
     })
-  }, [filters])
+  }, [filters, search, showFavoritesOnly, favorites])
 
+  // Map click → scroll card into view within the list panel
   const handleMapSelect = useCallback((trail) => {
     setSelectedTrail(prev => {
       const next = prev?.id === trail?.id ? null : trail
       if (next) {
         setView('list')
         setTimeout(() => {
-          cardRefs.current[next.id]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          const card = cardRefs.current[next.id]
+          const list = listRef.current
+          if (card && list) {
+            const cardTop = card.offsetTop
+            const listHeight = list.clientHeight
+            const cardHeight = card.clientHeight
+            list.scrollTo({ top: cardTop - listHeight / 2 + cardHeight / 2, behavior: 'smooth' })
+          } else {
+            card?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
         }, 100)
       }
       return next
@@ -55,6 +110,54 @@ export default function Home() {
   }, [])
 
   const userInitial = user?.email?.[0]?.toUpperCase()
+
+  const FilterBar = (
+    <div className="flex flex-col gap-2">
+      {/* Search */}
+      <div className="relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+        <input
+          type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search trail or station…"
+          className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-green-600"
+        />
+        {search && (
+          <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm">✕</button>
+        )}
+      </div>
+
+      {/* Favorites toggle */}
+      {user && (
+        <button
+          onClick={() => setShowFavoritesOnly(p => !p)}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm transition-colors ${showFavoritesOnly ? 'border-red-400 bg-red-50 text-red-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+        >
+          <span>{showFavoritesOnly ? '♥' : '♡'}</span>
+          <span className="text-xs font-medium">{showFavoritesOnly ? 'Showing favorites' : 'Show favorites only'}</span>
+        </button>
+      )}
+
+      {/* Collapsible filters on mobile */}
+      <div className="sm:hidden">
+        <button
+          onClick={() => setFiltersOpen(p => !p)}
+          className="w-full flex items-center justify-between bg-white rounded-xl border border-gray-100 px-4 py-2.5 text-sm"
+        >
+          <span className="font-medium text-gray-700">Filters</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">{filtered.length} results</span>
+            <span className={`text-gray-400 transition-transform text-xs ${filtersOpen ? 'rotate-180' : ''}`}>▾</span>
+          </div>
+        </button>
+        {filtersOpen && <div className="mt-2"><Filters filters={filters} onChange={setFilters} count={filtered.length} /></div>}
+      </div>
+
+      {/* Always visible on desktop */}
+      <div className="hidden sm:block">
+        <Filters filters={filters} onChange={setFilters} count={filtered.length} />
+      </div>
+    </div>
+  )
 
   return (
     <>
@@ -72,7 +175,7 @@ export default function Home() {
       </Head>
 
       <div className="min-h-screen bg-[#f8f7f4]">
-        {/* ── Header ── */}
+        {/* Header */}
         <header className="bg-white border-b border-gray-200 sticky top-0 z-20">
           <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -84,28 +187,20 @@ export default function Home() {
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Mobile: map/list toggle */}
+              {/* Mobile list/map toggle */}
               <div className="flex sm:hidden border border-gray-200 rounded-lg overflow-hidden text-xs">
-                <button
-                  onClick={() => setView('list')}
-                  className={`px-3 py-1.5 font-medium transition-colors ${view === 'list' ? 'bg-green-700 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
+                <button onClick={() => setView('list')}
+                  className={`px-3 py-1.5 font-medium transition-colors ${view === 'list' ? 'bg-green-700 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
                   List
                 </button>
-                <button
-                  onClick={() => setView('map')}
-                  className={`px-3 py-1.5 font-medium transition-colors ${view === 'map' ? 'bg-green-700 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
+                <button onClick={() => setView('map')}
+                  className={`px-3 py-1.5 font-medium transition-colors ${view === 'map' ? 'bg-green-700 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
                   Map
                 </button>
               </div>
 
-              {/* Result count — desktop */}
-              <span className="text-xs text-gray-500 hidden md:block">
-                {filtered.length} trailhead{filtered.length !== 1 ? 's' : ''}
-              </span>
+              <span className="text-xs text-gray-500 hidden md:block">{filtered.length} trailhead{filtered.length !== 1 ? 's' : ''}</span>
 
-              {/* Auth button */}
               {user ? (
                 <div className="relative group">
                   <button className="w-8 h-8 rounded-full text-white text-sm font-semibold flex items-center justify-center" style={{ background: '#2d7a2d' }}>
@@ -117,10 +212,8 @@ export default function Home() {
                   </div>
                 </div>
               ) : (
-                <button
-                  onClick={() => setShowAuth(true)}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 font-medium"
-                >
+                <button onClick={() => setShowAuth(true)}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 font-medium">
                   Sign in
                 </button>
               )}
@@ -128,61 +221,63 @@ export default function Home() {
           </div>
         </header>
 
-        {/* ── Main layout ── */}
         <div className="max-w-7xl mx-auto px-4 py-4">
-
-          {/* Desktop: side-by-side */}
+          {/* Desktop layout */}
           <div className="hidden sm:grid sm:grid-cols-[340px_1fr] gap-6">
-            <div className="flex flex-col gap-4">
-              <Filters filters={filters} onChange={setFilters} count={filtered.length} />
-              <TrailList
-                trails={filtered}
-                selectedTrail={selectedTrail}
-                cardRefs={cardRefs}
-                setSelectedTrail={setSelectedTrail}
-                setPlanTrail={setPlanTrail}
-              />
-              <Footer />
+            <div className="flex flex-col gap-3">
+              {FilterBar}
+              <div ref={listRef} className="flex flex-col gap-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+                {filtered.length === 0 ? (
+                  <div className="text-center py-10 text-gray-500 text-sm bg-white rounded-xl border border-gray-100">
+                    No trailheads match. Try relaxing your filters or clearing the search.
+                  </div>
+                ) : filtered.map(trail => (
+                  <TrailCard
+                    key={trail.id}
+                    trail={trail}
+                    isSelected={selectedTrail?.id === trail.id}
+                    isFavorite={favorites.has(String(trail.id))}
+                    reviewCount={reviewCounts[String(trail.id)] || 0}
+                    onClick={() => setSelectedTrail(p => p?.id === trail.id ? null : trail)}
+                    cardRef={el => cardRefs.current[trail.id] = el}
+                    onPlan={() => setPlanTrail(trail)}
+                    onToggleFavorite={e => toggleFavorite(trail.id, e)}
+                  />
+                ))}
+                <Footer />
+              </div>
             </div>
             <div className="sticky top-[61px] h-[calc(100vh-80px)]">
               <TrailMap trails={filtered} selectedTrail={selectedTrail} onSelectTrail={handleMapSelect} />
             </div>
           </div>
 
-          {/* Mobile: list or map view */}
-          <div className="sm:hidden">
-            {/* Mobile filters - collapsible */}
-            <div className="mb-3">
-              <button
-                onClick={() => setShowFilters(f => !f)}
-                className="w-full flex items-center justify-between bg-white rounded-xl border border-gray-100 px-4 py-3 text-sm"
-              >
-                <span className="font-medium text-gray-700">Filters</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500">{filtered.length} results</span>
-                  <span className={`text-gray-400 transition-transform ${showFilters ? 'rotate-180' : ''}`}>▾</span>
-                </div>
-              </button>
-              {showFilters && (
-                <div className="mt-2">
-                  <Filters filters={filters} onChange={setFilters} count={filtered.length} />
-                </div>
-              )}
-            </div>
-
+          {/* Mobile layout */}
+          <div className="sm:hidden flex flex-col gap-3">
+            {FilterBar}
             {view === 'list' ? (
-              <div className="flex flex-col gap-3">
-                <TrailList
-                  trails={filtered}
-                  selectedTrail={selectedTrail}
-                  cardRefs={cardRefs}
-                  setSelectedTrail={setSelectedTrail}
-                  setPlanTrail={setPlanTrail}
-                />
+              <>
+                {filtered.length === 0 ? (
+                  <div className="text-center py-10 text-gray-500 text-sm bg-white rounded-xl border border-gray-100">
+                    No trailheads match. Try relaxing your filters.
+                  </div>
+                ) : filtered.map(trail => (
+                  <TrailCard
+                    key={trail.id}
+                    trail={trail}
+                    isSelected={selectedTrail?.id === trail.id}
+                    isFavorite={favorites.has(String(trail.id))}
+                    reviewCount={reviewCounts[String(trail.id)] || 0}
+                    onClick={() => setSelectedTrail(p => p?.id === trail.id ? null : trail)}
+                    cardRef={el => cardRefs.current[trail.id] = el}
+                    onPlan={() => setPlanTrail(trail)}
+                    onToggleFavorite={e => toggleFavorite(trail.id, e)}
+                  />
+                ))}
                 <Footer />
-              </div>
+              </>
             ) : (
-              <div style={{ height: 'calc(100vh - 160px)' }}>
+              <div style={{ height: 'calc(100vh - 180px)' }}>
                 <TrailMap trails={filtered} selectedTrail={selectedTrail} onSelectTrail={handleMapSelect} />
               </div>
             )}
@@ -199,30 +294,6 @@ export default function Home() {
       )}
 
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
-    </>
-  )
-}
-
-function TrailList({ trails, selectedTrail, cardRefs, setSelectedTrail, setPlanTrail }) {
-  if (trails.length === 0) {
-    return (
-      <div className="text-center py-10 text-gray-500 text-sm bg-white rounded-xl border border-gray-100">
-        No trailheads match your filters. Try relaxing the travel time or walk distance.
-      </div>
-    )
-  }
-  return (
-    <>
-      {trails.map(trail => (
-        <TrailCard
-          key={trail.id}
-          trail={trail}
-          isSelected={selectedTrail?.id === trail.id}
-          onClick={() => setSelectedTrail(p => p?.id === trail.id ? null : trail)}
-          cardRef={el => cardRefs.current[trail.id] = el}
-          onPlan={() => setPlanTrail(trail)}
-        />
-      ))}
     </>
   )
 }
