@@ -33,16 +33,19 @@ export default function Home() {
 
   const filtered = useMemo(() => {
     return trails.filter(t => {
-      const total = t.transitMin + t.walkMin
+      const total = (t.transitMin || 0) + (t.walkMin || 0)
+      const lineStr = t.line || t.operator || ''
+      const operatorStr = t.transitType || t.operator || ''
       if (filters.transit !== 'all') {
-        const isBus = ['Bus', 'Coach', 'Transbridge', 'Short Line', 'Trailways', 'Red & Tan'].some(k => t.line.includes(k))
+        const isBus = ['Bus', 'Coach', 'Transbridge', 'Short Line', 'Trailways', 'Red & Tan']
+          .some(k => lineStr.includes(k))
         if (filters.transit === 'Bus' && !isBus) return false
-        if (filters.transit !== 'Bus' && t.transitType !== filters.transit) return false
+        if (filters.transit !== 'Bus' && !operatorStr.includes(filters.transit)) return false
       }
       if (filters.difficulty !== 'all' && t.difficulty !== filters.difficulty) return false
       if (total > filters.maxTotalMin) return false
-      if (t.walkMin > filters.maxWalkMin) return false
-      if (t.lengthMi < filters.minLengthMi) return false
+      if ((t.walkMin || 0) > filters.maxWalkMin) return false
+      if (t.lengthMi != null && t.lengthMi < filters.minLengthMi) return false
       return true
     })
   }, [filters])
