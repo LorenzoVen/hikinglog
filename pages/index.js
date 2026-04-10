@@ -92,10 +92,15 @@ export default function Home() {
       const card = cardRefs.current[trailId]
       const container = containerRef.current
       if (!card || !container) return
-      const containerTop = container.getBoundingClientRect().top
-      const cardTop = card.getBoundingClientRect().top
-      const offset = cardTop - containerTop - (container.clientHeight / 2) + (card.clientHeight / 2)
-      container.scrollBy({ top: offset, behavior: 'smooth' })
+      // offsetTop is relative to offsetParent — walk up to find offset within container
+      let offsetTop = 0
+      let el = card
+      while (el && el !== container) {
+        offsetTop += el.offsetTop
+        el = el.offsetParent
+      }
+      const scrollTo = offsetTop - (container.clientHeight / 2) + (card.offsetHeight / 2)
+      container.scrollTo({ top: scrollTo, behavior: 'smooth' })
     })
   }
 
@@ -174,28 +179,7 @@ export default function Home() {
     </div>
   )
 
-  const CardList = ({ containerRef }) => (
-    <div ref={containerRef} className="flex flex-col gap-3 overflow-y-auto flex-1 min-h-0 pb-4">
-      {filtered.length === 0 ? (
-        <div className="text-center py-10 text-gray-500 text-sm bg-white rounded-xl border border-gray-100">
-          No trailheads match. Try relaxing your filters or clearing the search.
-        </div>
-      ) : filtered.map(trail => (
-        <TrailCard
-          key={trail.id}
-          trail={trail}
-          isSelected={selectedTrail?.id === trail.id}
-          isFavorite={favorites.has(String(trail.id))}
-          reviewCount={reviewCounts[String(trail.id)] || 0}
-          onClick={() => handleCardClick(trail)}
-          cardRef={el => cardRefs.current[trail.id] = el}
-          onPlan={() => setPlanTrail(trail)}
-          onToggleFavorite={e => toggleFavorite(trail.id, e)}
-        />
-      ))}
-      <Footer />
-    </div>
-  )
+  // CardList rendered inline below — not as a component to avoid remount/ref loss
 
   return (
     <>
@@ -264,7 +248,26 @@ export default function Home() {
           {/* Left: filters + scrollable list */}
           <div className="w-[340px] flex-shrink-0 flex flex-col gap-3 min-h-0">
             <div className="flex-shrink-0">{FilterPanel}</div>
-            <CardList containerRef={desktopListRef} />
+<div ref={desktopListRef} className="flex flex-col gap-3 overflow-y-auto flex-1 min-h-0 pb-4">
+                {filtered.length === 0 ? (
+                  <div className="text-center py-10 text-gray-500 text-sm bg-white rounded-xl border border-gray-100">
+                    No trailheads match. Try relaxing your filters or clearing the search.
+                  </div>
+                ) : filtered.map(trail => (
+                  <TrailCard
+                    key={trail.id}
+                    trail={trail}
+                    isSelected={selectedTrail?.id === trail.id}
+                    isFavorite={favorites.has(String(trail.id))}
+                    reviewCount={reviewCounts[String(trail.id)] || 0}
+                    onClick={() => handleCardClick(trail)}
+                    cardRef={el => cardRefs.current[trail.id] = el}
+                    onPlan={() => setPlanTrail(trail)}
+                    onToggleFavorite={e => toggleFavorite(trail.id, e)}
+                  />
+                ))}
+                <Footer />
+              </div>
           </div>
           {/* Right: sticky map — explicit height required for Mapbox GL */}
           <div className="flex-1" style={{ height: "calc(100vh - 80px)", position: "sticky", top: "61px" }}>
@@ -276,7 +279,26 @@ export default function Home() {
         <div className="sm:hidden flex flex-col flex-1 min-h-0 px-4 py-3 gap-3">
           <div className="flex-shrink-0">{FilterPanel}</div>
           {view === 'list' ? (
-            <CardList containerRef={mobileListRef} />
+<div ref={mobileListRef} className="flex flex-col gap-3 overflow-y-auto flex-1 min-h-0 pb-4">
+                {filtered.length === 0 ? (
+                  <div className="text-center py-10 text-gray-500 text-sm bg-white rounded-xl border border-gray-100">
+                    No trailheads match. Try relaxing your filters or clearing the search.
+                  </div>
+                ) : filtered.map(trail => (
+                  <TrailCard
+                    key={trail.id}
+                    trail={trail}
+                    isSelected={selectedTrail?.id === trail.id}
+                    isFavorite={favorites.has(String(trail.id))}
+                    reviewCount={reviewCounts[String(trail.id)] || 0}
+                    onClick={() => handleCardClick(trail)}
+                    cardRef={el => cardRefs.current[trail.id] = el}
+                    onPlan={() => setPlanTrail(trail)}
+                    onToggleFavorite={e => toggleFavorite(trail.id, e)}
+                  />
+                ))}
+                <Footer />
+              </div>
           ) : (
             <div style={{ height: "calc(100vh - 180px)" }}>
               <TrailMap trails={filtered} selectedTrail={selectedTrail} onSelectTrail={handleMapSelect} />
