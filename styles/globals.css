@@ -30,6 +30,4 @@ html, body {
   transform: translateY(-1px);
 }
 
-.trail-card.selected {
-  box-shadow: 0 0 0 2px #2d7a2d;
-}
+/* selected state handled by Tailwind ring-2 ring-green-600 */

@@ -16,17 +16,18 @@ export default function Home() {
   const [filters, setFilters] = useState({ transit: 'all', maxTotalMin: 150, maxWalkMin: 60 })
   const [search, setSearch] = useState('')
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
-  const [favorites, setFavorites] = useState(new Set()) // Set of trail_id strings
-  const [reviewCounts, setReviewCounts] = useState({}) // trail_id -> count
+  const [favorites, setFavorites] = useState(new Set())
+  const [reviewCounts, setReviewCounts] = useState({})
   const [selectedTrail, setSelectedTrail] = useState(null)
   const [planTrail, setPlanTrail] = useState(null)
   const [showAuth, setShowAuth] = useState(false)
   const [view, setView] = useState('list')
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const listRef = useRef(null)
+  // Separate scroll containers for desktop and mobile
+  const desktopListRef = useRef(null)
+  const mobileListRef = useRef(null)
   const cardRefs = useRef({})
 
-  // Load favorites when user logs in
   useEffect(() => {
     async function loadFavorites() {
       if (!user || !supabase) { setFavorites(new Set()); return }
@@ -36,7 +37,6 @@ export default function Home() {
     loadFavorites()
   }, [user])
 
-  // Load review counts for all trails (no login needed — public data)
   useEffect(() => {
     async function loadCounts() {
       if (!supabase) return
@@ -86,58 +86,75 @@ export default function Home() {
     })
   }, [filters, search, showFavoritesOnly, favorites])
 
-  // Map click → scroll card into view within the list panel
+  // Scroll selected card into view within its container
+  function scrollToCard(trailId, containerRef) {
+    requestAnimationFrame(() => {
+      const card = cardRefs.current[trailId]
+      const container = containerRef.current
+      if (!card || !container) return
+      const containerTop = container.getBoundingClientRect().top
+      const cardTop = card.getBoundingClientRect().top
+      const offset = cardTop - containerTop - (container.clientHeight / 2) + (card.clientHeight / 2)
+      container.scrollBy({ top: offset, behavior: 'smooth' })
+    })
+  }
+
   const handleMapSelect = useCallback((trail) => {
     setSelectedTrail(prev => {
       const next = prev?.id === trail?.id ? null : trail
       if (next) {
         setView('list')
+        // Small delay to ensure list view is rendered before scrolling
         setTimeout(() => {
-          const card = cardRefs.current[next.id]
-          const list = listRef.current
-          if (card && list) {
-            const cardTop = card.offsetTop
-            const listHeight = list.clientHeight
-            const cardHeight = card.clientHeight
-            list.scrollTo({ top: cardTop - listHeight / 2 + cardHeight / 2, behavior: 'smooth' })
-          } else {
-            card?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }
-        }, 100)
+          scrollToCard(next.id, desktopListRef)
+          scrollToCard(next.id, mobileListRef)
+        }, 150)
       }
       return next
     })
   }, [])
 
+  // Also scroll when a card is selected from the list (so it stays centred after expand)
+  function handleCardClick(trail) {
+    const next = selectedTrail?.id === trail.id ? null : trail
+    setSelectedTrail(next)
+    if (next) {
+      setTimeout(() => {
+        scrollToCard(next.id, desktopListRef)
+        scrollToCard(next.id, mobileListRef)
+      }, 50)
+    }
+  }
+
   const userInitial = user?.email?.[0]?.toUpperCase()
 
-  const FilterBar = (
+  const FilterPanel = (
     <div className="flex flex-col gap-2">
       {/* Search */}
       <div className="relative">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
         <input
           type="text" value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Search trail or station…"
-          className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-green-600"
+          className="w-full pl-9 pr-9 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-green-600"
         />
         {search && (
-          <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm">✕</button>
+          <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">✕</button>
         )}
       </div>
 
-      {/* Favorites toggle */}
+      {/* Favorites toggle — only when logged in */}
       {user && (
         <button
           onClick={() => setShowFavoritesOnly(p => !p)}
-          className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm transition-colors ${showFavoritesOnly ? 'border-red-400 bg-red-50 text-red-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium transition-colors ${showFavoritesOnly ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
         >
-          <span>{showFavoritesOnly ? '♥' : '♡'}</span>
-          <span className="text-xs font-medium">{showFavoritesOnly ? 'Showing favorites' : 'Show favorites only'}</span>
+          <span className="text-sm">{showFavoritesOnly ? '♥' : '♡'}</span>
+          {showFavoritesOnly ? 'Showing favorites only' : 'Show favorites only'}
         </button>
       )}
 
-      {/* Collapsible filters on mobile */}
+      {/* Filters — collapsible on mobile, always open on desktop */}
       <div className="sm:hidden">
         <button
           onClick={() => setFiltersOpen(p => !p)}
@@ -146,16 +163,37 @@ export default function Home() {
           <span className="font-medium text-gray-700">Filters</span>
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">{filtered.length} results</span>
-            <span className={`text-gray-400 transition-transform text-xs ${filtersOpen ? 'rotate-180' : ''}`}>▾</span>
+            <span className={`text-gray-400 text-xs transition-transform ${filtersOpen ? 'rotate-180' : ''}`}>▾</span>
           </div>
         </button>
         {filtersOpen && <div className="mt-2"><Filters filters={filters} onChange={setFilters} count={filtered.length} /></div>}
       </div>
-
-      {/* Always visible on desktop */}
       <div className="hidden sm:block">
         <Filters filters={filters} onChange={setFilters} count={filtered.length} />
       </div>
+    </div>
+  )
+
+  const CardList = ({ containerRef }) => (
+    <div ref={containerRef} className="flex flex-col gap-3 overflow-y-auto flex-1 min-h-0 pb-4">
+      {filtered.length === 0 ? (
+        <div className="text-center py-10 text-gray-500 text-sm bg-white rounded-xl border border-gray-100">
+          No trailheads match. Try relaxing your filters or clearing the search.
+        </div>
+      ) : filtered.map(trail => (
+        <TrailCard
+          key={trail.id}
+          trail={trail}
+          isSelected={selectedTrail?.id === trail.id}
+          isFavorite={favorites.has(String(trail.id))}
+          reviewCount={reviewCounts[String(trail.id)] || 0}
+          onClick={() => handleCardClick(trail)}
+          cardRef={el => cardRefs.current[trail.id] = el}
+          onPlan={() => setPlanTrail(trail)}
+          onToggleFavorite={e => toggleFavorite(trail.id, e)}
+        />
+      ))}
+      <Footer />
     </div>
   )
 
@@ -174,9 +212,9 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <div className="min-h-screen bg-[#f8f7f4]">
+      <div className="min-h-screen bg-[#f8f7f4] flex flex-col">
         {/* Header */}
-        <header className="bg-white border-b border-gray-200 sticky top-0 z-20">
+        <header className="bg-white border-b border-gray-200 sticky top-0 z-20 flex-shrink-0">
           <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <span className="text-xl">🥾</span>
@@ -199,7 +237,7 @@ export default function Home() {
                 </button>
               </div>
 
-              <span className="text-xs text-gray-500 hidden md:block">{filtered.length} trailhead{filtered.length !== 1 ? 's' : ''}</span>
+              <span className="text-xs text-gray-500 hidden md:block">{filtered.length} of {trails.length} trailheads</span>
 
               {user ? (
                 <div className="relative group">
@@ -221,67 +259,29 @@ export default function Home() {
           </div>
         </header>
 
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          {/* Desktop layout */}
-          <div className="hidden sm:grid sm:grid-cols-[340px_1fr] gap-6">
-            <div className="flex flex-col gap-3">
-              {FilterBar}
-              <div ref={listRef} className="flex flex-col gap-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
-                {filtered.length === 0 ? (
-                  <div className="text-center py-10 text-gray-500 text-sm bg-white rounded-xl border border-gray-100">
-                    No trailheads match. Try relaxing your filters or clearing the search.
-                  </div>
-                ) : filtered.map(trail => (
-                  <TrailCard
-                    key={trail.id}
-                    trail={trail}
-                    isSelected={selectedTrail?.id === trail.id}
-                    isFavorite={favorites.has(String(trail.id))}
-                    reviewCount={reviewCounts[String(trail.id)] || 0}
-                    onClick={() => setSelectedTrail(p => p?.id === trail.id ? null : trail)}
-                    cardRef={el => cardRefs.current[trail.id] = el}
-                    onPlan={() => setPlanTrail(trail)}
-                    onToggleFavorite={e => toggleFavorite(trail.id, e)}
-                  />
-                ))}
-                <Footer />
-              </div>
-            </div>
-            <div className="sticky top-[61px] h-[calc(100vh-80px)]">
+        {/* Desktop layout — fills remaining viewport height */}
+        <div className="hidden sm:flex flex-1 min-h-0 max-w-7xl w-full mx-auto px-4 py-4 gap-6">
+          {/* Left: filters + scrollable list */}
+          <div className="w-[340px] flex-shrink-0 flex flex-col gap-3 min-h-0">
+            <div className="flex-shrink-0">{FilterPanel}</div>
+            <CardList containerRef={desktopListRef} />
+          </div>
+          {/* Right: sticky map */}
+          <div className="flex-1 min-h-0">
+            <TrailMap trails={filtered} selectedTrail={selectedTrail} onSelectTrail={handleMapSelect} />
+          </div>
+        </div>
+
+        {/* Mobile layout */}
+        <div className="sm:hidden flex flex-col flex-1 min-h-0 px-4 py-3 gap-3">
+          <div className="flex-shrink-0">{FilterPanel}</div>
+          {view === 'list' ? (
+            <CardList containerRef={mobileListRef} />
+          ) : (
+            <div className="flex-1 min-h-0">
               <TrailMap trails={filtered} selectedTrail={selectedTrail} onSelectTrail={handleMapSelect} />
             </div>
-          </div>
-
-          {/* Mobile layout */}
-          <div className="sm:hidden flex flex-col gap-3">
-            {FilterBar}
-            {view === 'list' ? (
-              <>
-                {filtered.length === 0 ? (
-                  <div className="text-center py-10 text-gray-500 text-sm bg-white rounded-xl border border-gray-100">
-                    No trailheads match. Try relaxing your filters.
-                  </div>
-                ) : filtered.map(trail => (
-                  <TrailCard
-                    key={trail.id}
-                    trail={trail}
-                    isSelected={selectedTrail?.id === trail.id}
-                    isFavorite={favorites.has(String(trail.id))}
-                    reviewCount={reviewCounts[String(trail.id)] || 0}
-                    onClick={() => setSelectedTrail(p => p?.id === trail.id ? null : trail)}
-                    cardRef={el => cardRefs.current[trail.id] = el}
-                    onPlan={() => setPlanTrail(trail)}
-                    onToggleFavorite={e => toggleFavorite(trail.id, e)}
-                  />
-                ))}
-                <Footer />
-              </>
-            ) : (
-              <div style={{ height: 'calc(100vh - 180px)' }}>
-                <TrailMap trails={filtered} selectedTrail={selectedTrail} onSelectTrail={handleMapSelect} />
-              </div>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
@@ -292,7 +292,6 @@ export default function Home() {
           onLoginRequired={() => { setPlanTrail(null); setShowAuth(true) }}
         />
       )}
-
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
     </>
   )
@@ -300,7 +299,7 @@ export default function Home() {
 
 function Footer() {
   return (
-    <p className="text-xs text-gray-400 pb-6 leading-relaxed">
+    <p className="text-xs text-gray-400 leading-relaxed flex-shrink-0">
       Trailhead locations from OpenStreetMap contributors. Transit times are estimates
       from Grand Central (Metro-North) or Penn Station (LIRR / NJ Transit).
       Always check schedules before you go.

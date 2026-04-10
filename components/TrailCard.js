@@ -19,7 +19,7 @@ export default function TrailCard({ trail, isSelected, isFavorite, reviewCount, 
   return (
     <div
       ref={cardRef}
-      className={`trail-card bg-white rounded-xl border cursor-pointer ${isSelected ? 'selected border-green-600' : 'border-gray-100'}`}
+      className={`trail-card bg-white rounded-xl border cursor-pointer ${isSelected ? 'ring-2 ring-green-600 border-transparent' : 'border-gray-100'}`}
       onClick={onClick}
     >
       <div className="p-4">
