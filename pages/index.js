@@ -48,6 +48,14 @@ export default function Home() {
   const [detailTab, setDetailTab] = useState('transit')
   const [planTrail, setPlanTrail] = useState(null)
   const [showAuth, setShowAuth] = useState(false)
+  const [privacy, setPrivacy] = useState({
+    share_favorites: true,
+    share_planned: false,
+    share_reviews: true,
+    share_completed: true,
+  })
+  const [privacyLoading, setPrivacyLoading] = useState(false)
+  const [downloadingData, setDownloadingData] = useState(false)
   const [mobileView, setMobileView] = useState('list')
 
   const listRef = useRef(null)
@@ -73,6 +81,17 @@ export default function Home() {
   // ── Load user data ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user || !supabase) { setFavorites(new Set()); setPlannedIds(new Set()); setDoneIds(new Set()); return }
+    // Load privacy preferences from profiles table
+    async function loadProfile() {
+      const { data } = await supabase.from('profiles').select('share_favorites,share_planned,share_reviews,share_completed').eq('id', user.id).single()
+      if (data) setPrivacy({
+        share_favorites: data.share_favorites ?? true,
+        share_planned:   data.share_planned   ?? false,
+        share_reviews:   data.share_reviews   ?? true,
+        share_completed: data.share_completed ?? true,
+      })
+    }
+    loadProfile()
     async function loadUserData() {
       const [favRes, planRes] = await Promise.all([
         supabase.from('favorites').select('trail_id').eq('user_id', user.id),
@@ -172,6 +191,55 @@ export default function Home() {
   }
 
   // ── Page / nav helpers ───────────────────────────────────────────────────────
+  async function togglePrivacy(key) {
+    if (!user || !supabase) return
+    const next = { ...privacy, [key]: !privacy[key] }
+    setPrivacy(next)
+    await supabase.from('profiles').upsert({ id: user.id, [key]: next[key] }, { onConflict: 'id' })
+  }
+
+  async function downloadMyData() {
+    if (!user || !supabase) return
+    setDownloadingData(true)
+    const [favRes, planRes, repRes, clRes] = await Promise.all([
+      supabase.from('favorites').select('*').eq('user_id', user.id),
+      supabase.from('planned_trips').select('*').eq('user_id', user.id),
+      supabase.from('trail_reports').select('*').eq('user_id', user.id),
+      supabase.from('checklist_trips').select('*, checklist_items(*)').eq('user_id', user.id),
+    ])
+    const exportData = {
+      exported_at: new Date().toISOString(),
+      user_email: user.email,
+      favorites: favRes.data || [],
+      planned_trips: planRes.data || [],
+      trail_reports: repRes.data || [],
+      checklists: clRes.data || [],
+    }
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'hikinglog-my-data.json'
+    a.click()
+    URL.revokeObjectURL(url)
+    setDownloadingData(false)
+  }
+
+  async function deleteMyAccount() {
+    if (!user || !supabase) return
+    const confirmed = window.confirm('This will permanently delete all your data — favorites, reviews, checklists, and planned hikes. This cannot be undone.\n\nAre you sure?')
+    if (!confirmed) return
+    // Delete all user data in order (RLS cascades handle most)
+    await Promise.all([
+      supabase.from('favorites').delete().eq('user_id', user.id),
+      supabase.from('planned_trips').delete().eq('user_id', user.id),
+      supabase.from('trail_reports').delete().eq('user_id', user.id),
+      supabase.from('checklist_trips').delete().eq('user_id', user.id),
+      supabase.from('profiles').delete().eq('id', user.id),
+    ])
+    await signOut()
+  }
+
   function navTo(p) {
     setPage(p)
     if (p === 'trails') setShowFavoritesOnly(false)
@@ -528,10 +596,33 @@ export default function Home() {
                       </div>
                     </SettingsRow>
                   </SettingsSection>
+
+                  {user && (
+                    <SettingsSection title="Privacy">
+                      <SettingsRow label="Share favorites" sub="Your favorited trailheads appear anonymously in the community heat map">
+                        <Toggle on={privacy.share_favorites} onToggle={() => togglePrivacy('share_favorites')} />
+                      </SettingsRow>
+                      <SettingsRow label="Share planned hikes" sub="Planned trailheads shown anonymously in heat map">
+                        <Toggle on={privacy.share_planned} onToggle={() => togglePrivacy('share_planned')} />
+                      </SettingsRow>
+                      <SettingsRow label="Share reviews" sub={`Trail reviews attributed to your username (${user.email?.split('@')[0] || 'you'})`}>
+                        <Toggle on={privacy.share_reviews} onToggle={() => togglePrivacy('share_reviews')} />
+                      </SettingsRow>
+                      <SettingsRow label="Share completed hikes" sub="Completed trailheads shown anonymously in heat map">
+                        <Toggle on={privacy.share_completed} onToggle={() => togglePrivacy('share_completed')} />
+                      </SettingsRow>
+                    </SettingsSection>
+                  )}
+
                   <SettingsSection title="Account">
-                    <SettingsRow label="Email" sub="Used for login only — never shared">
-                      <span className="text-sm text-gray-500">{user?.email || 'Not signed in'}</span>
+                    <SettingsRow label="Email" sub="Used for login only — never shown publicly">
+                      <span className="text-sm text-gray-500">{user ? user.email.replace(/^(.).*(@.*)$/, '$1***$2') : 'Not signed in'}</span>
                     </SettingsRow>
+                    {user && (
+                      <SettingsRow label="Connected accounts" sub="">
+                        <span className="text-sm text-green-700 font-medium">Google ✓</span>
+                      </SettingsRow>
+                    )}
                     {!user ? (
                       <SettingsRow label="Sign in" sub="Required to save favorites, checklists and reviews">
                         <button onClick={() => setShowAuth(true)} className="px-4 py-2 rounded-lg text-sm font-medium bg-[#2d7a2d] text-white">Sign in</button>
@@ -542,6 +633,23 @@ export default function Home() {
                       </SettingsRow>
                     )}
                   </SettingsSection>
+
+                  {user && (
+                    <SettingsSection title="Data & account" danger>
+                      <SettingsRow label="Download my data" sub="Export all your hikes, reviews, and checklists as JSON">
+                        <button onClick={downloadMyData} disabled={downloadingData}
+                          className="px-4 py-2 rounded-lg text-sm border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                          {downloadingData ? 'Preparing…' : 'Download'}
+                        </button>
+                      </SettingsRow>
+                      <SettingsRow label="Delete my account" sub="Permanently removes all your data. This cannot be undone.">
+                        <button onClick={deleteMyAccount}
+                          className="px-4 py-2 rounded-lg text-sm border border-red-300 text-red-600 hover:bg-red-50 font-medium">
+                          Delete account
+                        </button>
+                      </SettingsRow>
+                    </SettingsSection>
+                  )}
                 </div>
               </div>
             )}
@@ -674,10 +782,21 @@ function ListCard({ trail, status, reviewCount, onOpen }) {
   )
 }
 
-function SettingsSection({ title, children }) {
+function Toggle({ on, onToggle }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-5">
-      <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wider">{title}</div>
+    <button onClick={onToggle}
+      className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${on ? 'bg-[#2d7a2d]' : 'bg-gray-300'}`}
+      style={{ flexShrink: 0 }}
+    >
+      <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${on ? 'left-5' : 'left-0.5'}`} />
+    </button>
+  )
+}
+
+function SettingsSection({ title, children, danger }) {
+  return (
+    <div className={`border rounded-xl overflow-hidden mb-5 ${danger ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200'}`}>
+      <div className={`px-5 py-3 border-b text-xs font-bold uppercase tracking-wider ${danger ? 'bg-red-100 border-red-200 text-red-500' : 'bg-gray-50 border-gray-100 text-gray-500'}`}>{title}</div>
       <div className="divide-y divide-gray-100">{children}</div>
     </div>
   )
