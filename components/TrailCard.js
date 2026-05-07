@@ -6,7 +6,7 @@ const transitColors = {
   'LIRR':        'bg-blue-50 text-blue-800',
 }
 
-export default function TrailCard({ trail, isSelected, isFavorite, reviewCount, onClick, cardRef, onPlan, onToggleFavorite }) {
+export default function TrailCard({ trail, isSelected, isFavorite, reviewCount, isPlanned, isDone, onClick, cardRef, onPlan, onToggleFavorite }) {
   const { fmtDist, fmtElev } = useUnits()
   const total = (trail.transitMin || 0) + (trail.walkMin || 0)
   const operator = trail.transitType || trail.operator || 'Transit'
@@ -19,7 +19,7 @@ export default function TrailCard({ trail, isSelected, isFavorite, reviewCount, 
   return (
     <div
       ref={cardRef}
-      className={`trail-card bg-white rounded-xl cursor-pointer ${isSelected ? 'border-2 border-green-700' : 'border border-gray-100'}`}
+      className={`trail-card bg-white rounded-xl border cursor-pointer ${isSelected ? 'ring-2 ring-green-600 border-transparent' : 'border-gray-100'}`}
       onClick={onClick}
     >
       <div className="p-4">
@@ -59,7 +59,7 @@ export default function TrailCard({ trail, isSelected, isFavorite, reviewCount, 
           </div>
         </div>
 
-        {/* Badges */}
+        {/* Badges + status icons */}
         <div className="flex flex-wrap items-center gap-1.5">
           <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${transitColors[transitLabel] || 'bg-blue-50 text-blue-800'}`}>
             {transitLabel}
@@ -75,12 +75,12 @@ export default function TrailCard({ trail, isSelected, isFavorite, reviewCount, 
           {trail.seasonal && (
             <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-orange-50 text-orange-700">Seasonal</span>
           )}
-          {/* Review count */}
-          {reviewCount > 0 && (
-            <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600 ml-auto">
-              {reviewCount} review{reviewCount !== 1 ? 's' : ''}
-            </span>
-          )}
+          {/* Status icons + review count right-aligned */}
+          <div className="flex items-center gap-1 ml-auto">
+            {reviewCount > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600">{reviewCount} review{reviewCount !== 1 ? 's' : ''}</span>}
+            {isPlanned && !isDone && <span title="Planned" style={{ fontSize: 13 }}>📅</span>}
+            {isDone && <span title="Completed" style={{ fontSize: 13 }}>🥾</span>}
+          </div>
         </div>
 
         {/* Trail stats */}

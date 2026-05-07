@@ -683,7 +683,7 @@ function PastTab({ trail, user }) {
 }
 
 // ── Main modal ────────────────────────────────────────────────────────────────
-export default function PlanModal({ trail, onClose, onLoginRequired }) {
+export default function PlanModal({ trail, onClose, onLoginRequired, onSaveForLater, embedded = false, inlineTab = null }) {
   const [activeTab, setActiveTab] = useState(0)
   const [tripDate, setTripDate] = useState(today())
   const { user } = useAuth()
@@ -698,6 +698,23 @@ export default function PlanModal({ trail, onClose, onLoginRequired }) {
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = '' }
   }, [])
+
+  // Sync inlineTab prop (when used as embedded detail panel)
+  const TAB_MAP = { transit: 0, weather: 1, checklist: 2, review: 3, 'trail links': 4, past: 5 }
+  const resolvedTab = inlineTab && TAB_MAP[inlineTab] !== undefined ? TAB_MAP[inlineTab] : activeTab
+
+  const tabContent = (
+    <>
+      {resolvedTab === 0 && <TransitTab trail={trail} tripDate={tripDate} />}
+      {resolvedTab === 1 && <WeatherTab trail={trail} tripDate={tripDate} onDateChange={setTripDate} />}
+      {resolvedTab === 2 && <ChecklistTab trail={trail} user={user} tripDate={tripDate} onLoginRequired={onLoginRequired} />}
+      {resolvedTab === 3 && <ReviewTab trail={trail} user={user} tripDate={tripDate} onLoginRequired={onLoginRequired} />}
+      {resolvedTab === 4 && <PastTab trail={trail} user={user} />}
+    </>
+  )
+
+  // Embedded mode — just render the tab content, no modal chrome
+  if (embedded) return tabContent
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center"
@@ -730,11 +747,7 @@ export default function PlanModal({ trail, onClose, onLoginRequired }) {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4">
-          {activeTab === 0 && <TransitTab trail={trail} tripDate={tripDate} />}
-          {activeTab === 1 && <WeatherTab trail={trail} tripDate={tripDate} onDateChange={setTripDate} />}
-          {activeTab === 2 && <ChecklistTab trail={trail} user={user} tripDate={tripDate} onLoginRequired={onLoginRequired} />}
-          {activeTab === 3 && <ReviewTab trail={trail} user={user} tripDate={tripDate} onLoginRequired={onLoginRequired} />}
-          {activeTab === 4 && <PastTab trail={trail} user={user} />}
+          {tabContent}
         </div>
       </div>
     </div>
