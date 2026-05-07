@@ -78,3 +78,31 @@ create table if not exists checklist_items (
 alter table checklist_items enable row level security;
 create policy "Users manage own checklist items" on checklist_items for all using (auth.uid() = user_id);
 create index if not exists checklist_items_trip_id_idx on checklist_items(trip_id);
+
+-- ── Profiles (user preferences & privacy settings) ────────────────────────────
+-- Run this in Supabase SQL Editor if not already present
+create table if not exists profiles (
+  id               uuid primary key references auth.users(id) on delete cascade,
+  share_favorites  boolean default true,
+  share_planned    boolean default false,
+  share_reviews    boolean default true,
+  share_completed  boolean default true,
+  updated_at       timestamptz default now()
+);
+alter table profiles enable row level security;
+create policy "Users manage own profile"
+  on profiles for all using (auth.uid() = id);
+
+-- ── Planned trips ──────────────────────────────────────────────────────────────
+create table if not exists planned_trips (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid references auth.users(id) on delete cascade not null,
+  trail_id   text not null,
+  trip_date  date,
+  status     text default 'planned',
+  created_at timestamptz default now(),
+  unique(user_id, trail_id, trip_date)
+);
+alter table planned_trips enable row level security;
+create policy "Users manage own planned trips"
+  on planned_trips for all using (auth.uid() = user_id);
