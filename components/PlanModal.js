@@ -193,60 +193,248 @@ function WeatherTab({ trail, tripDate, onDateChange }) {
 // ── Checklist tab ─────────────────────────────────────────────────────────────
 function ChecklistTab({ trail, user, tripDate, onLoginRequired }) {
   const trailId = String(trail.id || trail.osmId)
-  const [tripId, setTripId] = useState(null)
-  const [itemStates, setItemStates] = useState({}) // id -> {planned, packed, removed, review}
-  const [stage, setStage] = useState('planning')
-  const [loading, setLoading] = useState(true)
-  const [openCats, setOpenCats] = useState({})
 
-  // Initialise local state from master list
-  function initStates(existingItems) {
-    const s = {}
-    CHECKLIST_ITEMS.forEach(item => {
-      const existing = existingItems?.find(e => e.description === item.description && e.category === item.category)
-      s[item.id] = {
-        planned: existing?.planned || false,
-        packed:  existing?.packed || false,
-        removed: false,
-        review:  existing?.review || null,
-        dbId:    existing?.id || null,
-      }
-    })
-    return s
+  // ── DB state ──────────────────────────────────────────────────────────────
+  const [tripId, setTripId]         = useState(null)
+  const [itemStates, setItemStates] = useState({})
+  const [stage, setStage]           = useState('planning')
+  const [loading, setLoading]       = useState(true)
+  const [openCats, setOpenCats]     = useState({})
+
+  // ── Template state ────────────────────────────────────────────────────────
+  const [templates, setTemplates]           = useState([])   // [{id,name,is_default,items:[{category,description,is_custom}]}]
+  const [selectedTemplate, setSelectedTemplate] = useState('')
+  const [savingTemplate, setSavingTemplate] = useState(false)
+  const [newTplName, setNewTplName]         = useState('')
+  const [showNewTpl, setShowNewTpl]         = useState(false)
+  const [userCustomItems, setUserCustomItems] = useState([]) // user's personal item bank
+
+  // ── Inline add-item state ─────────────────────────────────────────────────
+  const [inlineInputs, setInlineInputs] = useState({}) // cat -> value
+  const [customCat, setCustomCat]       = useState('')
+  const [customDesc, setCustomDesc]     = useState('')
+
+  // ── All items = master list + user's custom items ─────────────────────────
+  const allMasterItems = CHECKLIST_ITEMS
+  const allCategories  = [
+    ...CHECKLIST_CATEGORIES,
+    ...userCustomItems.map(i => i.category).filter(c => !CHECKLIST_CATEGORIES.includes(c)),
+  ].filter((v, i, a) => a.indexOf(v) === i)
+
+  function buildAllItems() {
+    const custom = userCustomItems.map(i => ({
+      id:          `custom-${i.id}`,
+      category:    i.category,
+      description: i.description,
+      isCustom:    true,
+    }))
+    return [...allMasterItems, ...custom]
   }
 
+  // ── Load trip + items + templates + custom items ──────────────────────────
   useEffect(() => {
     if (!user || !tripDate || !supabase) { setItemStates(initStates([])); setLoading(false); return }
+
     async function load() {
       setLoading(true)
+
+      // 1. Upsert trip
       const { data: trip } = await supabase
         .from('checklist_trips')
-        .upsert({ user_id: user.id, trail_id: trailId, trip_date: tripDate }, { onConflict: 'user_id,trail_id,trip_date' })
+        .upsert({ user_id: user.id, trail_id: trailId, trip_date: tripDate },
+                 { onConflict: 'user_id,trail_id,trip_date' })
         .select().single()
       if (!trip) { setLoading(false); return }
       setTripId(trip.id)
-      const { data: existing } = await supabase.from('checklist_items').select('*').eq('trip_id', trip.id)
+
+      // 2. Load or seed items
+      const { data: existing } = await supabase
+        .from('checklist_items').select('*').eq('trip_id', trip.id)
+
+      // 3. Load user's custom items (personal bank)
+      const { data: customBank } = await supabase
+        .from('checklist_custom_items').select('*').eq('user_id', user.id)
+      const bank = customBank || []
+      setUserCustomItems(bank)
+
       if (existing && existing.length > 0) {
-        setItemStates(initStates(existing))
+        setItemStates(initStates(existing, bank))
       } else {
-        // Seed blank items
-        const seed = CHECKLIST_ITEMS.map(i => ({
-          trip_id: trip.id, user_id: user.id,
-          category: i.category, description: i.description,
-          planned: false, packed: false, review: null,
-        }))
-        const { data: inserted } = await supabase.from('checklist_items').insert(seed).select()
-        setItemStates(initStates(inserted || []))
+        // Seed from master list + custom bank
+        const allItems = [
+          ...CHECKLIST_ITEMS.map(i => ({ trip_id: trip.id, user_id: user.id, category: i.category, description: i.description, planned: false, packed: false, review: null })),
+          ...bank.map(i => ({ trip_id: trip.id, user_id: user.id, category: i.category, description: i.description, planned: false, packed: false, review: null })),
+        ]
+        const { data: inserted } = await supabase.from('checklist_items').insert(allItems).select()
+        setItemStates(initStates(inserted || allItems, bank))
       }
+
+      // 4. Load templates (default + user's own)
+      const [{ data: defaultTpls }, { data: userTpls }] = await Promise.all([
+        supabase.from('checklist_templates').select('id,name,is_default,checklist_template_items(category,description,is_custom)').eq('is_default', true).order('name'),
+        supabase.from('checklist_templates').select('id,name,is_default,checklist_template_items(category,description,is_custom)').eq('created_by', user.id).order('name'),
+      ])
+      setTemplates([...(defaultTpls||[]), ...(userTpls||[])])
+
       setLoading(false)
     }
     load()
   }, [user, tripDate, trailId])
 
+  function initStates(dbItems, customBank = []) {
+    const s = {}
+    const allItems = buildAllItems()
+    allItems.forEach(item => {
+      const existing = dbItems.find(e => e.description === item.description && e.category === item.category)
+      s[item.id] = {
+        planned: existing?.planned || false,
+        packed:  existing?.packed  || false,
+        removed: false,
+        review:  existing?.review  || null,
+        dbId:    existing?.id      || null,
+      }
+    })
+    return s
+  }
+
+  // ── Apply template ─────────────────────────────────────────────────────────
+  async function applyTemplate(tplId) {
+    setSelectedTemplate(tplId)
+    if (!tplId) return
+    const tpl = templates.find(t => t.id === tplId)
+    if (!tpl) return
+
+    const tplItems = tpl.checklist_template_items || []
+    const tplKeys = new Set(tplItems.map(i => `${i.category}||${i.description}`))
+
+    // For custom items in the template not yet in the user's bank or trip — add them
+    const customTplItems = tplItems.filter(i => i.is_custom)
+    const newCustomItems = []
+    const newDbItems = []
+
+    for (const ci of customTplItems) {
+      const existsInBank = userCustomItems.some(u => u.category === ci.category && u.description === ci.description)
+      if (!existsInBank && supabase && user) {
+        const { data } = await supabase.from('checklist_custom_items')
+          .insert({ user_id: user.id, category: ci.category, description: ci.description })
+          .select().single()
+        if (data) newCustomItems.push(data)
+      }
+      // Add to trip checklist if not already there
+      const itemId = `custom-${ci.description}`
+      if (!itemStates[itemId] && supabase && tripId) {
+        const { data } = await supabase.from('checklist_items')
+          .insert({ trip_id: tripId, user_id: user.id, category: ci.category, description: ci.description, planned: false, packed: false })
+          .select().single()
+        if (data) newDbItems.push(data)
+      }
+    }
+
+    if (newCustomItems.length) setUserCustomItems(prev => [...prev, ...newCustomItems])
+
+    // Update item states — check items in template, uncheck others
+    setItemStates(prev => {
+      const next = { ...prev }
+      buildAllItems().forEach(item => {
+        if (next[item.id]) {
+          const inTpl = tplKeys.has(`${item.category}||${item.description}`)
+          next[item.id] = { ...next[item.id], planned: inTpl }
+        }
+      })
+      // Add newly added custom items
+      newDbItems.forEach(dbItem => {
+        const id = `custom-${dbItem.description}`
+        next[id] = { planned: true, packed: false, removed: false, review: null, dbId: dbItem.id }
+      })
+      return next
+    })
+
+    // Persist to DB
+    if (supabase && tripId) {
+      const allItems = buildAllItems()
+      for (const item of allItems) {
+        const inTpl = tplKeys.has(`${item.category}||${item.description}`)
+        await supabase.from('checklist_items')
+          .update({ planned: inTpl })
+          .eq('trip_id', tripId).eq('description', item.description).eq('category', item.category)
+      }
+    }
+  }
+
+  // ── Save current selection as new template ─────────────────────────────────
+  async function saveAsTemplate() {
+    if (!newTplName.trim() || !user || !supabase) return
+    setSavingTemplate(true)
+    const { data: tpl } = await supabase.from('checklist_templates')
+      .insert({ name: newTplName.trim(), is_default: false, created_by: user.id })
+      .select().single()
+    if (tpl) {
+      const plannedItems = buildAllItems().filter(i => itemStates[i.id]?.planned)
+      const itemRows = plannedItems.map(i => ({
+        template_id: tpl.id, category: i.category,
+        description: i.description, is_custom: i.isCustom || false,
+      }))
+      if (itemRows.length) await supabase.from('checklist_template_items').insert(itemRows)
+      setTemplates(prev => [...prev, { ...tpl, checklist_template_items: itemRows }])
+      setSelectedTemplate(tpl.id)
+    }
+    setNewTplName(''); setShowNewTpl(false); setSavingTemplate(false)
+  }
+
+  // ── Add item inline (per category) ────────────────────────────────────────
+  async function addInlineItem(cat) {
+    const desc = (inlineInputs[cat] || '').trim()
+    if (!desc || !user || !supabase) return
+    setInlineInputs(prev => ({ ...prev, [cat]: '' }))
+
+    // Add to custom item bank
+    const { data: bankItem } = await supabase.from('checklist_custom_items')
+      .insert({ user_id: user.id, category: cat, description: desc })
+      .select().single()
+    if (bankItem) setUserCustomItems(prev => [...prev, bankItem])
+
+    // Add to this trip
+    const itemId = `custom-${bankItem?.id || desc}`
+    if (tripId) {
+      const { data: dbItem } = await supabase.from('checklist_items')
+        .insert({ trip_id: tripId, user_id: user.id, category: cat, description: desc, planned: true, packed: false })
+        .select().single()
+      setItemStates(prev => ({
+        ...prev,
+        [itemId]: { planned: true, packed: false, removed: false, review: null, dbId: dbItem?.id || null }
+      }))
+    }
+  }
+
+  // ── Add custom item from bottom form ──────────────────────────────────────
+  async function addCustomItem() {
+    const cat  = customCat.trim() || 'Other'
+    const desc = customDesc.trim()
+    if (!desc || !user || !supabase) return
+    setCustomCat(''); setCustomDesc('')
+
+    const { data: bankItem } = await supabase.from('checklist_custom_items')
+      .insert({ user_id: user.id, category: cat, description: desc })
+      .select().single()
+    if (bankItem) setUserCustomItems(prev => [...prev, bankItem])
+
+    const itemId = `custom-${bankItem?.id || desc}`
+    if (tripId) {
+      const { data: dbItem } = await supabase.from('checklist_items')
+        .insert({ trip_id: tripId, user_id: user.id, category: cat, description: desc, planned: true, packed: false })
+        .select().single()
+      setItemStates(prev => ({
+        ...prev,
+        [itemId]: { planned: true, packed: false, removed: false, review: null, dbId: dbItem?.id || null }
+      }))
+    }
+  }
+
+  // ── Update item state ─────────────────────────────────────────────────────
   async function updateState(itemId, patch) {
     setItemStates(prev => ({ ...prev, [itemId]: { ...prev[itemId], ...patch } }))
     if (supabase && tripId) {
-      const item = CHECKLIST_ITEMS.find(i => i.id === itemId)
+      const item = buildAllItems().find(i => i.id === itemId)
       if (!item) return
       await supabase.from('checklist_items')
         .update({ ...patch, updated_at: new Date().toISOString() })
@@ -254,60 +442,34 @@ function ChecklistTab({ trail, user, tripDate, onLoginRequired }) {
     }
   }
 
-  function togglePlan(id) {
-    const cur = itemStates[id]
-    if (!cur) return
-    const planned = !cur.planned
-    updateState(id, { planned, packed: planned ? cur.packed : false, review: planned ? cur.review : null })
-  }
-  function togglePack(id) {
-    const cur = itemStates[id]
-    if (!cur) return
-    const packed = !cur.packed
-    updateState(id, { packed, review: packed ? cur.review : null })
-  }
-  function removeItem(id) {
-    updateState(id, { removed: true, packed: false, review: null })
-  }
-  function setReview(id, val) {
-    const cur = itemStates[id]
-    updateState(id, { review: cur?.review === val ? null : val })
-  }
-  function toggleCat(cat) {
-    setOpenCats(p => ({ ...p, [cat]: p[cat] === false ? true : false }))
-  }
+  function togglePlan(id)    { const cur = itemStates[id]; updateState(id, { planned: !cur?.planned, packed: cur?.planned ? false : cur?.packed, review: cur?.planned ? null : cur?.review }) }
+  function togglePack(id)    { const cur = itemStates[id]; updateState(id, { packed: !cur?.packed, review: cur?.packed ? null : cur?.review }) }
+  function removeItem(id)    { setItemStates(prev => ({ ...prev, [id]: { ...prev[id], removed: true, packed: false, review: null } })) }
+  function setReview(id,val) { updateState(id, { review: itemStates[id]?.review === val ? null : val }) }
+  function toggleCat(cat)    { setOpenCats(p => ({ ...p, [cat]: p[cat] === false })) }
 
-  if (!user) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">
-        <div className="text-4xl">📋</div>
-        <div>
-          <p className="font-medium text-gray-800 mb-1">Sign in to use checklists</p>
-          <p className="text-xs text-gray-500">Track what to bring, what you packed,<br/>and how it went after the hike.</p>
-        </div>
-        <button onClick={onLoginRequired}
-          className="px-5 py-2.5 rounded-xl text-white text-sm font-medium" style={{ background: '#2d7a2d' }}>
-          Sign in
-        </button>
-      </div>
-    )
-  }
-
+  // ── Render ────────────────────────────────────────────────────────────────
+  if (!user) return (
+    <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">
+      <div className="text-4xl">📋</div>
+      <div><p className="font-medium text-gray-800 mb-1">Sign in to use checklists</p><p className="text-xs text-gray-500">Track what to bring, what you packed, and how it went.</p></div>
+      <button onClick={onLoginRequired} className="px-5 py-2.5 rounded-xl text-white text-sm font-medium" style={{ background: '#2d7a2d' }}>Sign in</button>
+    </div>
+  )
   if (loading) return <div className="text-sm text-gray-400 text-center py-8">Loading checklist…</div>
 
-  const allItems = CHECKLIST_ITEMS
-  const planned = allItems.filter(i => itemStates[i.id]?.planned)
+  const allItems = buildAllItems()
+  const planned  = allItems.filter(i => itemStates[i.id]?.planned)
   const packed   = allItems.filter(i => itemStates[i.id]?.packed)
   const reviewed = allItems.filter(i => itemStates[i.id]?.review)
-
-  const stageTotal = stage === 'planning' ? allItems.length : stage === 'packing' ? planned.length : allItems.length
-  const stageDone  = stage === 'planning' ? planned.length  : stage === 'packing' ? packed.length   : reviewed.length
-  const pct = stageTotal > 0 ? Math.round(stageDone / stageTotal * 100) : 0
+  const pct      = stage === 'planning' ? Math.round(planned.length / allItems.length * 100)
+                 : stage === 'packing'  ? Math.round(packed.length  / planned.length  * 100) || 0
+                 :                        Math.round(reviewed.length / allItems.length * 100)
 
   const STAGE_DESC = {
-    planning:      'Select the items you plan to bring. Only selected items appear in Packing.',
-    packing:       'Check off items as you pack. Packed items move to the bottom. × removes an item from this trip.',
-    'post-hike':   'All items shown. Rate everything — including what you didn\'t plan or pack.',
+    planning:   'Select the items you plan to bring. Only selected items appear in Packing.',
+    packing:    'Check off items as you pack. Packed items move to the bottom. × removes an item from this trip.',
+    'post-hike':'All items shown. Rate everything — including what you didn't plan or pack.',
   }
 
   const REVIEW_BTNS = (id) => {
@@ -316,11 +478,9 @@ function ChecklistTab({ trail, user, tripDate, onLoginRequired }) {
       <div className="flex gap-1 flex-shrink-0">
         {[['more','↑','border-orange-400 bg-orange-50 text-orange-700'],
           ['ok','✓','border-green-600 bg-green-50 text-green-800'],
-          ['less','↓','border-blue-500 bg-blue-50 text-blue-800']].map(([val, label, activeClass]) => (
+          ['less','↓','border-blue-500 bg-blue-50 text-blue-800']].map(([val,lbl,cls]) => (
           <button key={val} onClick={() => setReview(id, val)}
-            className={`text-[10px] px-2 py-1 rounded-full border transition-colors ${r === val ? activeClass : 'border-gray-200 text-gray-400 hover:border-gray-400'}`}>
-            {label}
-          </button>
+            className={`text-[10px] px-2 py-1 rounded-full border transition-colors ${r === val ? cls : 'border-gray-200 text-gray-400 hover:border-gray-400'}`}>{lbl}</button>
         ))}
       </div>
     )
@@ -330,11 +490,9 @@ function ChecklistTab({ trail, user, tripDate, onLoginRequired }) {
     <div className="flex flex-col gap-3">
       {/* Stage selector */}
       <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
-        {[
-          { key: 'planning',   label: 'Planning',  count: `${planned.length}/${allItems.length}` },
-          { key: 'packing',    label: 'Packing',   count: `${packed.length}/${planned.length}` },
-          { key: 'post-hike',  label: 'Post-hike', count: `${reviewed.length}/${allItems.length}` },
-        ].map(s => (
+        {[{key:'planning',label:'Planning',count:`${planned.length}/${allItems.length}`},
+          {key:'packing', label:'Packing', count:`${packed.length}/${planned.length}`},
+          {key:'post-hike',label:'Post-hike',count:`${reviewed.length}/${allItems.length}`}].map(s => (
           <button key={s.key} onClick={() => setStage(s.key)}
             className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors leading-tight ${stage === s.key ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500'}`}>
             {s.label}<br/>
@@ -343,32 +501,67 @@ function ChecklistTab({ trail, user, tripDate, onLoginRequired }) {
         ))}
       </div>
 
-      {/* Progress */}
+      {/* Progress bar */}
       <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, background: '#2d7a2d' }} />
+        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: '#2d7a2d' }} />
       </div>
+
+      {/* Template row — Planning only */}
+      {stage === 'planning' && (
+        <div className="flex gap-2">
+          <select value={selectedTemplate} onChange={e => applyTemplate(e.target.value)}
+            className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600 bg-white">
+            <option value="">No template — custom selection</option>
+            {templates.filter(t => t.is_default).length > 0 && (
+              <optgroup label="Default templates">
+                {templates.filter(t => t.is_default).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </optgroup>
+            )}
+            {templates.filter(t => !t.is_default).length > 0 && (
+              <optgroup label="My templates">
+                {templates.filter(t => !t.is_default).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </optgroup>
+            )}
+          </select>
+          <button onClick={() => setShowNewTpl(p => !p)}
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 flex-shrink-0">
+            {showNewTpl ? '✕' : '＋ Save'}
+          </button>
+        </div>
+      )}
+
+      {/* Save as template form — Planning only */}
+      {stage === 'planning' && showNewTpl && (
+        <div className="flex gap-2 p-3 bg-green-50 border border-green-200 rounded-xl">
+          <input value={newTplName} onChange={e => setNewTplName(e.target.value)}
+            placeholder="Template name…"
+            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+            onKeyDown={e => { if (e.key === 'Enter') saveAsTemplate() }} />
+          <button onClick={saveAsTemplate} disabled={savingTemplate || !newTplName.trim()}
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40" style={{ background: '#2d7a2d' }}>
+            {savingTemplate ? '…' : 'Save'}
+          </button>
+        </div>
+      )}
 
       <p className="text-xs text-gray-500">{STAGE_DESC[stage]}</p>
 
-      {/* Items by category */}
-      {CHECKLIST_CATEGORIES.map(cat => {
-        const catItems = CHECKLIST_ITEMS.filter(i => i.category === cat)
-
+      {/* Item categories */}
+      {allCategories.map(cat => {
+        const catItems = allItems.filter(i => i.category === cat)
         let visible
         if (stage === 'planning') {
           visible = catItems
         } else if (stage === 'packing') {
           visible = catItems.filter(i => itemStates[i.id]?.planned && !itemStates[i.id]?.removed)
-          if (visible.length === 0) return null
-          // unpacked first, packed at bottom
-          visible = [...visible.filter(i => !itemStates[i.id]?.packed), ...visible.filter(i => itemStates[i.id]?.packed)]
+          if (!visible.length) return null
         } else {
-          // post-hike: ALL items — packed, planned-not-packed, not-planned
-          const packedItems   = catItems.filter(i => itemStates[i.id]?.packed)
-          const plannedNP     = catItems.filter(i => itemStates[i.id]?.planned && !itemStates[i.id]?.packed)
-          const notPlanned    = catItems.filter(i => !itemStates[i.id]?.planned)
-          visible = [...packedItems, ...plannedNP, ...notPlanned]
+          const pk  = catItems.filter(i => itemStates[i.id]?.packed)
+          const plnp = catItems.filter(i => itemStates[i.id]?.planned && !itemStates[i.id]?.packed)
+          const np  = catItems.filter(i => !itemStates[i.id]?.planned)
+          visible = [...pk, ...plnp, ...np]
         }
+        if (!visible.length) return null
 
         const isOpen = openCats[cat] !== false
         const catDone = visible.filter(i => {
@@ -388,58 +581,87 @@ function ChecklistTab({ trail, user, tripDate, onLoginRequired }) {
               </div>
             </button>
 
-            {isOpen && visible.map(item => {
-              const st = itemStates[item.id] || {}
-              const dimmed = stage === 'packing' && st.packed
+            {isOpen && (
+              <>
+                {visible.map(item => {
+                  const st     = itemStates[item.id] || {}
+                  const dimmed = stage === 'packing' && st.packed
+                  let noteEl = null, textColor = 'text-gray-800'
+                  if (stage === 'post-hike') {
+                    if (!st.planned) { noteEl = <span className="text-[11px] text-gray-400 italic ml-1">(not planned)</span>; textColor = 'text-gray-400' }
+                    else if (!st.packed) { noteEl = <span className="text-[11px] text-orange-500 italic ml-1">(not packed)</span>; textColor = 'text-gray-600' }
+                  }
+                  return (
+                    <div key={item.id}
+                      className={`flex items-center gap-3 px-4 py-2.5 border-t border-gray-50 transition-opacity ${dimmed ? 'opacity-35' : ''}`}>
+                      {stage === 'planning' && (
+                        <button onClick={() => togglePlan(item.id)}
+                          className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-colors ${st.planned ? 'border-green-600 bg-green-600' : 'border-gray-300'}`}>
+                          {st.planned && <span className="text-white text-xs font-bold">✓</span>}
+                        </button>
+                      )}
+                      {stage === 'packing' && (
+                        <button onClick={() => togglePack(item.id)}
+                          className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-colors ${st.packed ? 'border-blue-600 bg-blue-600' : 'border-gray-300'}`}>
+                          {st.packed && <span className="text-white text-xs font-bold">✓</span>}
+                        </button>
+                      )}
+                      {stage === 'post-hike' && <div className="w-5 flex-shrink-0" />}
 
-              // Post-hike labels
-              let noteEl = null
-              let textColor = 'text-gray-800'
-              if (stage === 'post-hike') {
-                if (!st.planned) { noteEl = <span className="text-[11px] text-gray-400 italic ml-1">(not planned)</span>; textColor = 'text-gray-400' }
-                else if (!st.packed) { noteEl = <span className="text-[11px] text-orange-500 italic ml-1">(not packed)</span>; textColor = 'text-gray-600' }
-              }
+                      <span className={`text-sm flex-1 ${st.packed && stage === 'packing' ? 'line-through text-gray-400' : textColor}`}>
+                        {item.description}
+                        {item.isCustom && <span className="text-[10px] text-gray-400 ml-1">(custom)</span>}
+                        {noteEl}
+                      </span>
 
-              return (
-                <div key={item.id}
-                  className={`flex items-center gap-3 px-4 py-2.5 border-t border-gray-50 transition-opacity ${dimmed ? 'opacity-35' : ''}`}>
+                      {stage === 'packing' && (
+                        <button onClick={() => removeItem(item.id)} className="text-gray-300 hover:text-red-500 text-lg leading-none flex-shrink-0 transition-colors">×</button>
+                      )}
+                      {stage === 'post-hike' && REVIEW_BTNS(item.id)}
+                    </div>
+                  )
+                })}
 
-                  {stage === 'planning' && (
-                    <button onClick={() => togglePlan(item.id)}
-                      className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-colors ${st.planned ? 'border-green-600 bg-green-600' : 'border-gray-300'}`}>
-                      {st.planned && <span className="text-white text-xs font-bold">✓</span>}
-                    </button>
-                  )}
-
-                  {stage === 'packing' && (
-                    <button onClick={() => togglePack(item.id)}
-                      className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-colors ${st.packed ? 'border-blue-600 bg-blue-600' : 'border-gray-300'}`}>
-                      {st.packed && <span className="text-white text-xs font-bold">✓</span>}
-                    </button>
-                  )}
-
-                  {stage === 'post-hike' && <div className="w-5 flex-shrink-0" />}
-
-                  <span className={`text-sm flex-1 ${st.packed && stage === 'packing' ? 'line-through text-gray-400' : textColor}`}>
-                    {item.description}{noteEl}
-                  </span>
-
-                  {stage === 'packing' && (
-                    <button onClick={() => removeItem(item.id)} className="text-gray-300 hover:text-red-500 text-lg leading-none flex-shrink-0 transition-colors">×</button>
-                  )}
-
-                  {stage === 'post-hike' && REVIEW_BTNS(item.id)}
-                </div>
-              )
-            })}
+                {/* Add item inline — Planning only */}
+                {stage === 'planning' && (
+                  <div className="flex gap-2 px-4 py-2 border-t border-dashed border-gray-200 bg-gray-50">
+                    <input
+                      value={inlineInputs[cat] || ''}
+                      onChange={e => setInlineInputs(prev => ({ ...prev, [cat]: e.target.value }))}
+                      placeholder={`Add item to ${cat}…`}
+                      className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-600"
+                      onKeyDown={e => { if (e.key === 'Enter') addInlineItem(cat) }}
+                    />
+                    <button onClick={() => addInlineItem(cat)}
+                      className="px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold">+</button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )
       })}
+
+      {/* Add custom item from scratch — Planning only */}
+      {stage === 'planning' && (
+        <div className="border border-dashed border-gray-200 rounded-xl p-3 bg-gray-50">
+          <div className="text-xs font-medium text-gray-500 mb-2">Add to a new or existing category</div>
+          <div className="flex gap-2">
+            <input value={customCat} onChange={e => setCustomCat(e.target.value)} placeholder="Category…"
+              className="w-32 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-600 flex-shrink-0" />
+            <input value={customDesc} onChange={e => setCustomDesc(e.target.value)} placeholder="Item name…"
+              className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-600"
+              onKeyDown={e => { if (e.key === 'Enter') addCustomItem() }} />
+            <button onClick={addCustomItem}
+              className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold flex-shrink-0">Add</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-// ── Review (Trail Report) tab ─────────────────────────────────────────────────
+
 function ReviewTab({ trail, user, tripDate, onLoginRequired }) {
   const trailId = String(trail.id || trail.osmId)
   const [reports, setReports] = useState([])

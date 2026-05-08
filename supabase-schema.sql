@@ -232,3 +232,60 @@ create index if not exists trail_links_type_idx on trail_links(type);
 alter table trailheads add column if not exists suspect_match boolean default false;
 alter table trailheads add column if not exists suspect_note  text;
 alter table trailheads add column if not exists updated_at    timestamptz default now();
+
+-- ── Checklist templates ────────────────────────────────────────────────────────
+create table if not exists checklist_templates (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  description text,
+  is_default  boolean default false,   -- true = built-in (admin-managed)
+  created_by  uuid references auth.users(id) on delete cascade,
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
+);
+alter table checklist_templates enable row level security;
+-- Anyone can read default templates
+create policy "Anyone reads default templates"
+  on checklist_templates for select using (is_default = true);
+-- Users can read/write their own templates
+create policy "Users manage own templates"
+  on checklist_templates for all using (auth.uid() = created_by);
+
+-- ── Checklist template items ───────────────────────────────────────────────────
+create table if not exists checklist_template_items (
+  id           uuid primary key default gen_random_uuid(),
+  template_id  uuid references checklist_templates(id) on delete cascade not null,
+  category     text not null,
+  description  text not null,
+  is_custom    boolean default false,  -- true = not in master list
+  created_at   timestamptz default now()
+);
+alter table checklist_template_items enable row level security;
+create policy "Anyone reads template items for default templates"
+  on checklist_template_items for select
+  using (exists (
+    select 1 from checklist_templates t
+    where t.id = template_id and t.is_default = true
+  ));
+create policy "Users manage own template items"
+  on checklist_template_items for all
+  using (exists (
+    select 1 from checklist_templates t
+    where t.id = template_id and t.created_by = auth.uid()
+  ));
+
+-- ── User custom items (personal item bank) ─────────────────────────────────────
+create table if not exists checklist_custom_items (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid references auth.users(id) on delete cascade not null,
+  category    text not null,
+  description text not null,
+  created_at  timestamptz default now(),
+  unique(user_id, category, description)
+);
+alter table checklist_custom_items enable row level security;
+create policy "Users manage own custom items"
+  on checklist_custom_items for all using (auth.uid() = user_id);
+
+create index if not exists template_items_template_idx on checklist_template_items(template_id);
+create index if not exists custom_items_user_idx on checklist_custom_items(user_id);

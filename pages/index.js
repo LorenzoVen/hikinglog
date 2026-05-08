@@ -634,6 +634,8 @@ export default function Home() {
                     )}
                   </SettingsSection>
 
+                  {user && <TemplateManager user={user} />}
+
                   {user && (
                     <SettingsSection title="Data & account" danger>
                       <SettingsRow label="Download my data" sub="Export all your hikes, reviews, and checklists as JSON">
@@ -790,6 +792,163 @@ function Toggle({ on, onToggle }) {
     >
       <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${on ? 'left-5' : 'left-0.5'}`} />
     </button>
+  )
+}
+
+
+function TemplateManager({ user }) {
+  const [templates, setTemplates]     = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [expandedId, setExpandedId]   = useState(null)
+  const [renaming, setRenaming]       = useState(null)   // template id
+  const [renameVal, setRenameVal]     = useState('')
+  const [newTplName, setNewTplName]   = useState('')
+  const [adding, setAdding]           = useState(false)
+  const [newItemCat, setNewItemCat]   = useState('')
+  const [newItemDesc, setNewItemDesc] = useState('')
+
+  useEffect(() => {
+    if (!user || !supabase) { setLoading(false); return }
+    async function load() {
+      const { data } = await supabase
+        .from('checklist_templates')
+        .select('id,name,is_default,checklist_template_items(id,category,description,is_custom)')
+        .eq('created_by', user.id)
+        .order('name')
+      setTemplates(data || [])
+      setLoading(false)
+    }
+    load()
+  }, [user])
+
+  async function addTemplate() {
+    if (!newTplName.trim() || !supabase) return
+    const { data } = await supabase.from('checklist_templates')
+      .insert({ name: newTplName.trim(), is_default: false, created_by: user.id })
+      .select('id,name,is_default,checklist_template_items(id,category,description,is_custom)').single()
+    if (data) { setTemplates(prev => [...prev, data]); setNewTplName('') }
+  }
+
+  async function renameTemplate(id) {
+    if (!renameVal.trim() || !supabase) return
+    await supabase.from('checklist_templates').update({ name: renameVal.trim() }).eq('id', id)
+    setTemplates(prev => prev.map(t => t.id === id ? { ...t, name: renameVal.trim() } : t))
+    setRenaming(null)
+  }
+
+  async function deleteTemplate(id) {
+    if (!confirm('Delete this template? This cannot be undone.') || !supabase) return
+    await supabase.from('checklist_templates').delete().eq('id', id)
+    setTemplates(prev => prev.filter(t => t.id !== id))
+    if (expandedId === id) setExpandedId(null)
+  }
+
+  async function addItem(tplId) {
+    if (!newItemDesc.trim() || !supabase) return
+    const cat = newItemCat.trim() || 'Other'
+    const { data } = await supabase.from('checklist_template_items')
+      .insert({ template_id: tplId, category: cat, description: newItemDesc.trim(), is_custom: true })
+      .select().single()
+    if (data) {
+      setTemplates(prev => prev.map(t => t.id === tplId
+        ? { ...t, checklist_template_items: [...(t.checklist_template_items || []), data] }
+        : t))
+      setNewItemCat(''); setNewItemDesc('')
+    }
+  }
+
+  async function removeItem(tplId, itemId) {
+    if (!supabase) return
+    await supabase.from('checklist_template_items').delete().eq('id', itemId)
+    setTemplates(prev => prev.map(t => t.id === tplId
+      ? { ...t, checklist_template_items: (t.checklist_template_items || []).filter(i => i.id !== itemId) }
+      : t))
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-5">
+      <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center justify-between">
+        <span>My Checklist Templates</span>
+        <button onClick={() => setAdding(p => !p)}
+          className="text-green-700 font-semibold hover:text-green-800">
+          {adding ? '✕ Cancel' : '＋ New template'}
+        </button>
+      </div>
+
+      {adding && (
+        <div className="flex gap-2 px-5 py-3 border-b border-gray-100 bg-green-50">
+          <input value={newTplName} onChange={e => setNewTplName(e.target.value)}
+            placeholder="Template name…"
+            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+            onKeyDown={e => { if (e.key === 'Enter') { addTemplate(); setAdding(false) } }} />
+          <button onClick={() => { addTemplate(); setAdding(false) }}
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-white" style={{ background: '#2d7a2d' }}>
+            Create
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="px-5 py-4 text-sm text-gray-400">Loading…</div>
+      ) : templates.length === 0 ? (
+        <div className="px-5 py-4 text-sm text-gray-400">No custom templates yet. Create one above, or save a trip checklist as a template.</div>
+      ) : templates.map(tpl => (
+        <div key={tpl.id} className="border-b border-gray-100 last:border-0">
+          {/* Template row */}
+          <div className="flex items-center gap-3 px-5 py-3">
+            {renaming === tpl.id ? (
+              <>
+                <input value={renameVal} onChange={e => setRenameVal(e.target.value)} autoFocus
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+                  onKeyDown={e => { if (e.key === 'Enter') renameTemplate(tpl.id); if (e.key === 'Escape') setRenaming(null) }} />
+                <button onClick={() => renameTemplate(tpl.id)} className="text-xs px-3 py-1.5 rounded-lg text-white" style={{ background: '#2d7a2d' }}>Save</button>
+                <button onClick={() => setRenaming(null)} className="text-xs px-2 py-1.5 rounded-lg border border-gray-200 text-gray-500">✕</button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setExpandedId(p => p === tpl.id ? null : tpl.id)}
+                  className="flex-1 text-left">
+                  <span className="text-sm font-medium text-gray-800">{tpl.name}</span>
+                  <span className="text-xs text-gray-400 ml-2">{(tpl.checklist_template_items || []).length} items</span>
+                </button>
+                <button onClick={() => { setRenaming(tpl.id); setRenameVal(tpl.name) }}
+                  className="text-xs text-gray-400 hover:text-gray-700 px-2">✏️</button>
+                <button onClick={() => deleteTemplate(tpl.id)}
+                  className="text-xs text-red-300 hover:text-red-600 px-2">🗑</button>
+                <span className={`text-xs text-gray-300 transition-transform ${expandedId === tpl.id ? 'rotate-180' : ''}`}>▾</span>
+              </>
+            )}
+          </div>
+
+          {/* Expanded: items + add */}
+          {expandedId === tpl.id && (
+            <div className="px-5 pb-3">
+              <div className="flex flex-col gap-1 mb-3">
+                {(tpl.checklist_template_items || []).map(item => (
+                  <div key={item.id} className="flex items-center gap-2 py-1 border-b border-gray-50 last:border-0">
+                    <span className="text-xs text-gray-500 w-24 flex-shrink-0">{item.category}</span>
+                    <span className="text-sm text-gray-800 flex-1">{item.description}
+                      {item.is_custom && <span className="text-[10px] text-gray-400 ml-1">(custom)</span>}
+                    </span>
+                    <button onClick={() => removeItem(tpl.id, item.id)}
+                      className="text-gray-300 hover:text-red-500 text-base leading-none">×</button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 mt-2">
+                <input value={newItemCat} onChange={e => setNewItemCat(e.target.value)} placeholder="Category"
+                  className="w-28 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-600 flex-shrink-0" />
+                <input value={newItemDesc} onChange={e => setNewItemDesc(e.target.value)} placeholder="Item name…"
+                  className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-600"
+                  onKeyDown={e => { if (e.key === 'Enter') addItem(tpl.id) }} />
+                <button onClick={() => addItem(tpl.id)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white flex-shrink-0" style={{ background: '#2d7a2d' }}>+</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }
 
