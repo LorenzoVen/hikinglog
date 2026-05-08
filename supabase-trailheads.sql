@@ -60,6 +60,8 @@ create table if not exists trailheads (
   alltrails_url   text,
   seasonal        boolean default false,
   season_note     text,
+  suspect_match   boolean default false,  -- flagged by build script: possible river crossing
+  suspect_note    text,                  -- human-readable reason for flag
 
   -- Admin
   approved        boolean default false,    -- only approved=true shows on the website
@@ -167,3 +169,7 @@ create policy "Users see their own suggestions"
 --   3. Update the suggestion: set status='approved' or 'rejected'
 --      and add admin_notes if useful
 -- ══════════════════════════════════════════════════════════════════
+
+-- ── Add suspect match columns (run if trailheads table already exists) ────────
+alter table trailheads add column if not exists suspect_match boolean default false;
+alter table trailheads add column if not exists suspect_note  text;

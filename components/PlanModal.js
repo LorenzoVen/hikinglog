@@ -3,29 +3,53 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { CHECKLIST_ITEMS, CHECKLIST_CATEGORIES } from '../lib/checklistItems'
 
-const TABS = ['Transit', 'Weather', 'Checklist', 'Review', 'Past']
+const TABS = ['Transit', 'Weather', 'Checklist', 'Review', 'Trails', 'Past']
 
 function today() { return new Date().toISOString().split('T')[0] }
 
 // ── Origin helper ─────────────────────────────────────────────────────────────
 function getOrigin(trail) {
+  const op  = (trail.operator || trail.transitType || '').toLowerCase()
   const line = (trail.line || '').toLowerCase()
-  const op = trail.operator || trail.transitType || ''
-  if (op === 'LIRR') return { label: 'Penn Station', maps: 'Penn+Station,+New+York,+NY' }
-  if (line.includes('port jervis') || line.includes('pascack'))
-    return { label: 'Penn Station', maps: 'Penn+Station,+New+York,+NY' }
-  if (op === 'NJ Transit' || line.includes('nj transit'))
+  if (op.includes('lirr'))
+    return { label: 'Penn Station (LIRR)', maps: 'Penn+Station,+New+York,+NY' }
+  if (op.includes('nj transit rail') || op.includes('njt rail') ||
+      line.includes('port jervis') || line.includes('pascack') ||
+      line.includes('montclair') || line.includes('raritan'))
+    return { label: 'Penn Station (NJ Transit)', maps: 'Penn+Station,+New+York,+NY' }
+  const isBus = op.includes('bus') || op.includes('coach') || op.includes('trans-bridge') ||
+    op.includes('transbridge') || op.includes('academy') || op.includes('lakeland') ||
+    op.includes('broadway') || op.includes('shortline') || op.includes('county') ||
+    op.includes('sjta') || op.includes('warren') || op.includes('sussex') ||
+    op.includes('hunterdon') || op.includes('somerset') || op.includes('cumberland') ||
+    op.includes('gloucester') || op.includes('atlantic') || op.includes('burlington')
+  if (isBus)
     return { label: 'Port Authority Bus Terminal', maps: 'Port+Authority+Bus+Terminal,+New+York,+NY' }
   return { label: 'Grand Central Terminal', maps: 'Grand+Central+Terminal,+New+York,+NY' }
 }
 
-function getMtaScheduleUrl(station, operator) {
+function getScheduleInfo(station, operator) {
+  const op  = (operator || '').toLowerCase()
   const enc = encodeURIComponent(station.replace(/\s*\(.*?\)/g, '').trim())
-  if (operator === 'Metro-North' || operator === 'MNR')
-    return `https://new.mta.info/schedules/metro-north-railroad?origin=${enc}`
-  if (operator === 'LIRR')
-    return `https://new.mta.info/schedules/long-island-rail-road?origin=${enc}`
-  return 'https://new.mta.info/schedules'
+  if (op.includes('metro-north') || op === 'mnr')
+    return { label: 'View MTA schedule', url: `https://new.mta.info/schedules/metro-north-railroad?origin=${enc}` }
+  if (op.includes('lirr'))
+    return { label: 'View MTA schedule', url: `https://new.mta.info/schedules/long-island-rail-road?origin=${enc}` }
+  if (op.includes('nj transit rail') || op.includes('njt rail'))
+    return { label: 'NJ Transit rail schedule', url: 'https://www.njtransit.com/schedules/rail-schedules' }
+  if (op.includes('nj transit bus') || op.includes('njt bus'))
+    return { label: 'NJ Transit bus schedule', url: 'https://www.njtransit.com/schedules/bus-schedules' }
+  if (op.includes('trans-bridge') || op.includes('transbridge'))
+    return { label: 'Trans-Bridge schedule', url: 'https://www.transbridgelines.com/schedules' }
+  if (op.includes('academy'))
+    return { label: 'Academy Bus schedule', url: 'https://www.academybus.com/schedules' }
+  if (op.includes('lakeland'))
+    return { label: 'Lakeland Bus schedule', url: 'https://www.lakelandbus.com' }
+  if (op.includes('shortline') || op.includes('coach'))
+    return { label: 'Shortline schedule', url: 'https://www.coachusa.com/shortline' }
+  if (op.includes('broadway'))
+    return { label: 'Broadway Bus schedule', url: 'https://www.coachusa.com/broadway' }
+  return { label: 'Plan your trip', url: 'https://www.njtransit.com/plan-your-trip' }
 }
 
 function getGoogleMapsUrl(trail) {
@@ -38,8 +62,11 @@ function getGoogleMapsUrl(trail) {
 function TransitTab({ trail, tripDate }) {
   const stationClean = trail.station.replace(/\s*\(.*?\)/g, '').trim()
   const origin = getOrigin(trail)
-  const scheduleUrl = getMtaScheduleUrl(trail.station, trail.operator || trail.transitType)
+  const schedule = getScheduleInfo(trail.station, trail.operator || trail.transitType)
   const mapsUrl = getGoogleMapsUrl(trail)
+  const op = (trail.operator || '').toLowerCase()
+  const isMta = op.includes('metro-north') || op.includes('lirr')
+  const isNjRail = op.includes('nj transit rail')
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
 
   return (
@@ -54,11 +81,11 @@ function TransitTab({ trail, tripDate }) {
       </div>
 
       {/* Schedule link */}
-      <a href={scheduleUrl} target="_blank" rel="noopener noreferrer"
+      <a href={schedule.url} target="_blank" rel="noopener noreferrer"
         className="flex items-center justify-between w-full border border-gray-200 rounded-xl px-4 py-3.5 hover:bg-gray-50 transition-colors">
         <div>
-          <div className="text-sm font-medium text-gray-800">View full schedule</div>
-          <div className="text-xs text-gray-500 mt-0.5">Opens MTA timetable for {stationClean}</div>
+          <div className="text-sm font-medium text-gray-800">{schedule.label}</div>
+          <div className="text-xs text-gray-500 mt-0.5">{stationClean} · {trail.line || trail.operator}</div>
         </div>
         <span className="text-gray-400">→</span>
       </a>
@@ -427,7 +454,7 @@ function ReviewTab({ trail, user, tripDate, onLoginRequired }) {
     trail_type: '', hike_type: '', difficulty: '', grade: '',
     public_transport: null, parking: [], weather: '', temperature: '', wind: '',
     path: [], fauna: [], landscape: [], facilities: [], crowdedness: '',
-    alltrails_link: '', garmin_link: '', avenza_link: '',
+
   }
   const [form, setForm] = useState(blank)
   const sf = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -554,10 +581,7 @@ function ReviewTab({ trail, user, tripDate, onLoginRequired }) {
           <div><Lbl c="Landscape" /><MS k="landscape" opts={['none','Waterfall','Bridge','Viewpoint','Tower']} /></div>
           <div><Lbl c="Facilities" /><MS k="facilities" opts={['none','Info Point','Food','Bathrooms','Maps','Water']} /></div>
           <div><Lbl c="Crowdedness" /><SS k="crowdedness" opts={['Empty','Quiet','Moderate','Busy','Very busy']} /></div>
-          <Sec t="Links (optional)" />
-          {[['alltrails_link','AllTrails URL'],['garmin_link','Garmin URL'],['avenza_link','Avenza URL']].map(([k,p]) => (
-            <div key={k}><Lbl c={p} /><input type="url" value={form[k]} onChange={e => sf(k, e.target.value)} placeholder="https://…" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600" /></div>
-          ))}
+
           <div className="flex gap-2 pt-2">
             <button type="submit" disabled={submitting} className="flex-1 py-3 rounded-xl text-white text-sm font-medium disabled:opacity-50" style={{ background: '#2d7a2d' }}>
               {submitting ? 'Submitting…' : 'Submit review'}
@@ -683,10 +707,190 @@ function PastTab({ trail, user }) {
 }
 
 // ── Main modal ────────────────────────────────────────────────────────────────
+
+// ── Trails tab ────────────────────────────────────────────────────────────────
+function TrailsTab({ trail, user, onLoginRequired }) {
+  const trailId = String(trail.id || trail.osmId)
+  const [suggestedLinks, setSuggestedLinks] = useState([])
+  const [userLinks, setUserLinks] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [urlInput, setUrlInput] = useState('')
+  const [fetching, setFetching] = useState(false)
+  const [fetchedTitle, setFetchedTitle] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [suggestSent, setSuggestSent] = useState(false)
+
+  const SOURCE_STYLES = {
+    alltrails: 'bg-green-600 text-white',
+    garmin:    'bg-blue-600 text-white',
+    avenza:    'bg-red-600 text-white',
+    other:     'bg-gray-200 text-gray-700',
+  }
+  const SOURCE_LABELS = { alltrails: 'AllTrails', garmin: 'Garmin', avenza: 'Avenza', other: 'Web' }
+
+  function detectSource(url) {
+    if (url.includes('alltrails.com')) return 'alltrails'
+    if (url.includes('garmin.com'))    return 'garmin'
+    if (url.includes('avenza.com'))    return 'avenza'
+    return 'other'
+  }
+
+  useEffect(() => {
+    async function load() {
+      if (!supabase) { setLoading(false); return }
+      const { data: suggested } = await supabase
+        .from('trail_links').select('*')
+        .eq('trail_id', trailId).eq('type', 'suggested')
+        .order('created_at', { ascending: true })
+      setSuggestedLinks(suggested || [])
+      if (user) {
+        const { data: mine } = await supabase
+          .from('trail_links').select('*')
+          .eq('trail_id', trailId).eq('type', 'user').eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+        setUserLinks(mine || [])
+      }
+      setLoading(false)
+    }
+    load()
+  }, [trailId, user])
+
+  async function doFetchTitle() {
+    if (!urlInput.trim()) return
+    setFetching(true); setFetchedTitle(null)
+    try {
+      const res = await fetch(`/api/fetch-title?url=${encodeURIComponent(urlInput)}`)
+      const data = await res.json()
+      setFetchedTitle(data)
+    } catch { setFetchedTitle({ title: urlInput, source: 'other' }) }
+    setFetching(false)
+  }
+
+  async function saveLink() {
+    if (!user) { onLoginRequired(); return }
+    if (!fetchedTitle || !supabase) return
+    setSaving(true)
+    const { data } = await supabase.from('trail_links').insert({
+      trail_id: trailId, type: 'user', user_id: user.id,
+      url: urlInput.trim(), title: fetchedTitle.title,
+      source: detectSource(urlInput), approved: true,
+    }).select().single()
+    if (data) setUserLinks(prev => [data, ...prev])
+    setUrlInput(''); setFetchedTitle(null)
+    setSaving(false)
+  }
+
+  async function deleteUserLink(id) {
+    if (!supabase) return
+    await supabase.from('trail_links').delete().eq('id', id)
+    setUserLinks(prev => prev.filter(l => l.id !== id))
+  }
+
+  function LinkCard({ link, onDelete }) {
+    const src = link.source || 'other'
+    return (
+      <div className="flex items-start gap-3 p-3 border border-gray-100 rounded-xl hover:bg-gray-50">
+        <span className={`text-[10px] px-2 py-1 rounded-full font-semibold flex-shrink-0 mt-0.5 ${SOURCE_STYLES[src]}`}>
+          {SOURCE_LABELS[src]}
+        </span>
+        <div className="flex-1 min-w-0">
+          <a href={link.url} target="_blank" rel="noopener noreferrer"
+            className="text-sm font-medium text-gray-800 hover:text-green-700 leading-snug block truncate">
+            {link.title}
+          </a>
+          <div className="text-xs text-gray-400 truncate mt-0.5">{link.url}</div>
+        </div>
+        {onDelete && (
+          <button onClick={onDelete} className="text-gray-300 hover:text-red-500 text-lg leading-none flex-shrink-0">×</button>
+        )}
+      </div>
+    )
+  }
+
+  if (loading) return <div className="text-sm text-gray-400 text-center py-6">Loading…</div>
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-xs text-gray-500">Add links to trail maps, GPX files, and route pages. The title is fetched automatically from each link.</p>
+
+      {/* Add a link */}
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          <input
+            value={urlInput}
+            onChange={e => { setUrlInput(e.target.value); setFetchedTitle(null) }}
+            onBlur={doFetchTitle}
+            placeholder="Paste an AllTrails, Garmin, or Avenza URL…"
+            className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+          />
+          <button onClick={doFetchTitle} disabled={!urlInput || fetching}
+            className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 flex-shrink-0">
+            {fetching ? '…' : 'Fetch'}
+          </button>
+        </div>
+        {fetchedTitle && (
+          <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200">
+            <span className={`text-[10px] px-2 py-1 rounded-full font-semibold flex-shrink-0 ${SOURCE_STYLES[detectSource(urlInput)]}`}>
+              {SOURCE_LABELS[detectSource(urlInput)]}
+            </span>
+            <span className="text-sm font-medium text-gray-800 flex-1 truncate">{fetchedTitle.title}</span>
+            <button onClick={saveLink} disabled={saving}
+              className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white flex-shrink-0 disabled:opacity-50"
+              style={{ background: '#2d7a2d' }}>
+              {saving ? 'Saving…' : user ? 'Save' : 'Sign in to save'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Suggested links */}
+      {suggestedLinks.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Suggested routes</div>
+          <div className="flex flex-col gap-2">
+            {suggestedLinks.map(link => <LinkCard key={link.id} link={link} />)}
+          </div>
+        </div>
+      )}
+
+      {/* User's own links */}
+      {user && userLinks.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Your saved links</div>
+          <div className="flex flex-col gap-2">
+            {userLinks.map(link => (
+              <LinkCard key={link.id} link={link} onDelete={() => deleteUserLink(link.id)} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {suggestedLinks.length === 0 && (!user || userLinks.length === 0) && (
+        <div className="text-sm text-gray-400 text-center py-4 bg-gray-50 rounded-xl">
+          No trail links yet for this trailhead.
+        </div>
+      )}
+
+      {!user && (
+        <button onClick={onLoginRequired}
+          className="w-full py-2.5 rounded-xl border border-gray-200 text-sm text-gray-500 hover:bg-gray-50">
+          Sign in to save your own links
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function PlanModal({ trail, onClose, onLoginRequired, onSaveForLater, embedded = false, inlineTab = null }) {
   const [activeTab, setActiveTab] = useState(0)
   const [tripDate, setTripDate] = useState(today())
   const { user } = useAuth()
+
+  // Sync inlineTab prop (for embedded detail panel mode)
+  const TAB_MAP = { transit: 0, weather: 1, checklist: 2, review: 3, trails: 4, past: 5 }
+  const resolvedTab = (embedded && inlineTab && TAB_MAP[inlineTab] !== undefined)
+    ? TAB_MAP[inlineTab]
+    : activeTab
 
   useEffect(() => {
     const handler = e => { if (e.key === 'Escape') onClose() }
@@ -699,22 +903,19 @@ export default function PlanModal({ trail, onClose, onLoginRequired, onSaveForLa
     return () => { document.body.style.overflow = '' }
   }, [])
 
-  // Sync inlineTab prop (when used as embedded detail panel)
-  const TAB_MAP = { transit: 0, weather: 1, checklist: 2, review: 3, 'trail links': 4, past: 5 }
-  const resolvedTab = inlineTab && TAB_MAP[inlineTab] !== undefined ? TAB_MAP[inlineTab] : activeTab
-
-  const tabContent = (
-    <>
-      {resolvedTab === 0 && <TransitTab trail={trail} tripDate={tripDate} />}
-      {resolvedTab === 1 && <WeatherTab trail={trail} tripDate={tripDate} onDateChange={setTripDate} />}
-      {resolvedTab === 2 && <ChecklistTab trail={trail} user={user} tripDate={tripDate} onLoginRequired={onLoginRequired} />}
-      {resolvedTab === 3 && <ReviewTab trail={trail} user={user} tripDate={tripDate} onLoginRequired={onLoginRequired} />}
-      {resolvedTab === 4 && <PastTab trail={trail} user={user} />}
-    </>
-  )
-
-  // Embedded mode — just render the tab content, no modal chrome
-  if (embedded) return tabContent
+  // Embedded mode — just the tab content, no modal wrapper
+  if (embedded) {
+    return (
+      <>
+        {resolvedTab === 0 && <TransitTab trail={trail} tripDate={tripDate} />}
+        {resolvedTab === 1 && <WeatherTab trail={trail} tripDate={tripDate} onDateChange={setTripDate} />}
+        {resolvedTab === 2 && <ChecklistTab trail={trail} user={user} tripDate={tripDate} onLoginRequired={onLoginRequired} />}
+        {resolvedTab === 3 && <ReviewTab trail={trail} user={user} tripDate={tripDate} onLoginRequired={onLoginRequired} />}
+        {resolvedTab === 4 && <TrailsTab trail={trail} user={user} onLoginRequired={onLoginRequired} />}
+        {resolvedTab === 5 && <PastTab trail={trail} user={user} />}
+      </>
+    )
+  }
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center"
@@ -747,7 +948,12 @@ export default function PlanModal({ trail, onClose, onLoginRequired, onSaveForLa
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4">
-          {tabContent}
+          {resolvedTab === 0 && <TransitTab trail={trail} tripDate={tripDate} />}
+          {resolvedTab === 1 && <WeatherTab trail={trail} tripDate={tripDate} onDateChange={setTripDate} />}
+          {resolvedTab === 2 && <ChecklistTab trail={trail} user={user} tripDate={tripDate} onLoginRequired={onLoginRequired} />}
+          {resolvedTab === 3 && <ReviewTab trail={trail} user={user} tripDate={tripDate} onLoginRequired={onLoginRequired} />}
+          {resolvedTab === 4 && <TrailsTab trail={trail} user={user} onLoginRequired={onLoginRequired} />}
+          {resolvedTab === 5 && <PastTab trail={trail} user={user} />}
         </div>
       </div>
     </div>
