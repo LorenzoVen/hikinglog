@@ -469,7 +469,7 @@ function ChecklistTab({ trail, user, tripDate, onLoginRequired }) {
   const STAGE_DESC = {
     planning:   'Select the items you plan to bring. Only selected items appear in Packing.',
     packing:    'Check off items as you pack. Packed items move to the bottom. × removes an item from this trip.',
-    'post-hike':'All items shown. Rate everything — including what you didn't plan or pack.',
+    'post-hike':'All items shown. Rate everything — including what you did not plan or pack.',
   }
 
   const REVIEW_BTNS = (id) => {
