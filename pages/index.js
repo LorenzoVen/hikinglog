@@ -62,12 +62,13 @@ export default function Home() {
   const cardRefs = useRef({})
 
   // ── Load trailheads from Supabase (via API route) ───────────────────────────
+  // Re-runs when user changes so admin gets the ?admin=1 fetch
   useEffect(() => {
     async function load() {
+      setLoadingTrails(true)
       try {
         const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'lveneziani83@gmail.com'
-        const currentUser = supabase ? (await supabase.auth.getUser())?.data?.user : null
-        const adminParam = currentUser?.email === adminEmail ? '?admin=1' : ''
+        const adminParam = user?.email === adminEmail ? '?admin=1' : ''
         const res = await fetch(`/api/trailheads${adminParam}`)
         if (!res.ok) throw new Error('Failed to load trailheads')
         const data = await res.json()
@@ -79,7 +80,7 @@ export default function Home() {
       setLoadingTrails(false)
     }
     load()
-  }, [])
+  }, [user])
 
   // ── Load user data ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -168,7 +169,10 @@ export default function Home() {
       if (total > filters.maxTotalMin) return false
       if ((t.walkMin || 0) > filters.maxWalkMin) return false
       if (showFavoritesOnly && !favorites.has(String(t.id))) return false
-      if (filters.transit === 'suspect' && !t.suspectMatch) return false
+      if (filters.transit === 'suspect') {
+        if (!t.suspectMatch) return false
+        return true  // skip all other filters for suspect view — show them all
+      }
       if (q) {
         if (!(t.name || '').toLowerCase().includes(q) && !(t.station || '').toLowerCase().includes(q)) return false
       }
