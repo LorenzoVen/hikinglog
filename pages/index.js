@@ -163,7 +163,7 @@ export default function Home() {
       if (filters.transit === 'suspect') {
         return t.suspectMatch === true
       }
-      if (!t.approved) return false  // non-suspect filters never show unapproved
+      if (t.approved === false) return false  // only explicitly block approved=false rows
       if (filters.transit !== 'all') {
         const isBus = ['Bus', 'Coach', 'Trans-Bridge', 'Lakeland', 'Academy', 'Broadway'].some(k => lineStr.includes(k) || operatorStr.includes(k))
         if (filters.transit === 'Bus' && !isBus) return false
