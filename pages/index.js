@@ -65,7 +65,10 @@ export default function Home() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch('/api/trailheads')
+        const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'lveneziani83@gmail.com'
+        const currentUser = supabase ? (await supabase.auth.getUser())?.data?.user : null
+        const adminParam = currentUser?.email === adminEmail ? '?admin=1' : ''
+        const res = await fetch(`/api/trailheads${adminParam}`)
         if (!res.ok) throw new Error('Failed to load trailheads')
         const data = await res.json()
         setTrails(data)
@@ -165,6 +168,7 @@ export default function Home() {
       if (total > filters.maxTotalMin) return false
       if ((t.walkMin || 0) > filters.maxWalkMin) return false
       if (showFavoritesOnly && !favorites.has(String(t.id))) return false
+      if (filters.transit === 'suspect' && !t.suspectMatch) return false
       if (q) {
         if (!(t.name || '').toLowerCase().includes(q) && !(t.station || '').toLowerCase().includes(q)) return false
       }
@@ -246,6 +250,7 @@ export default function Home() {
   }
 
   const userInitial = user?.email?.[0]?.toUpperCase() || '?'
+  const isAdmin = user?.email === (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'lveneziani83@gmail.com')
   const plannedTrails = trails.filter(t => plannedIds.has(String(t.id)) && !doneIds.has(String(t.id)))
   const pastTrails    = trails.filter(t => doneIds.has(String(t.id)))
   const nudgeTrails   = pastTrails.filter(t => !reviewCounts[String(t.id)])
@@ -442,7 +447,7 @@ export default function Home() {
                 {/* List */}
                 <div className="flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden min-h-0">
                   <div className="p-3 border-b border-gray-100 flex-shrink-0">
-                    <Filters filters={filters} onChange={setFilters} count={filtered.length} />
+                    <Filters filters={filters} onChange={setFilters} count={filtered.length} isAdmin={isAdmin} />
                   </div>
                   <div ref={listRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
                     {loadingTrails ? (
@@ -681,7 +686,7 @@ export default function Home() {
           </div>
         </header>
         <div className="flex-1 flex flex-col px-4 py-3 gap-3 overflow-hidden">
-          <Filters filters={filters} onChange={setFilters} count={filtered.length} />
+          <Filters filters={filters} onChange={setFilters} count={filtered.length} isAdmin={isAdmin} />
           {mobileView === 'list' ? (
             <div ref={listRef} className="flex-1 overflow-y-auto flex flex-col gap-3 pb-4">
               {loadingTrails ? <div className="text-center py-8 text-gray-400 text-sm">Loading…</div>
