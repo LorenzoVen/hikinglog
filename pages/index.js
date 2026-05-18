@@ -61,18 +61,29 @@ export default function Home() {
   const listRef = useRef(null)
   const cardRefs = useRef({})
 
-  // ── Load trailheads from Supabase (via API route) ───────────────────────────
-  // Re-runs when user changes so admin gets the ?admin=1 fetch
+  // ── Load trailheads ──────────────────────────────────────────────────────────
+  // When admin selects River Crossing filter, also fetches suspect entries
   useEffect(() => {
     async function load() {
       setLoadingTrails(true)
       try {
         const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'lveneziani83@gmail.com'
-        const adminParam = user?.email === adminEmail ? '?admin=1' : ''
-        const res = await fetch(`/api/trailheads${adminParam}`)
+        const userIsAdmin = user?.email === adminEmail
+        // Always fetch approved trailheads
+        const res = await fetch('/api/trailheads')
         if (!res.ok) throw new Error('Failed to load trailheads')
-        const data = await res.json()
-        setTrails(data)
+        const approved = await res.json()
+        // If admin, also fetch suspect (approved=false, suspect_match=true) and merge
+        if (userIsAdmin) {
+          const suspectRes = await fetch('/api/trailheads?suspect=1')
+          const suspect = suspectRes.ok ? await suspectRes.json() : []
+          // Merge: approved first, then suspect (no duplicates)
+          const approvedIds = new Set(approved.map(t => t.id))
+          const merged = [...approved, ...suspect.filter(t => !approvedIds.has(t.id))]
+          setTrails(merged)
+        } else {
+          setTrails(approved)
+        }
       } catch (e) {
         console.error('Trailheads load error:', e)
         setTrails([])
@@ -81,6 +92,8 @@ export default function Home() {
     }
     load()
   }, [user])
+
+
 
   // ── Load user data ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -156,6 +169,7 @@ export default function Home() {
 
   // ── Filtered trails ──────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
+
     const q = search.trim().toLowerCase()
     return trails.filter(t => {
       const total = (t.transitMin || 0) + (t.walkMin || 0)
@@ -169,10 +183,8 @@ export default function Home() {
       if (total > filters.maxTotalMin) return false
       if ((t.walkMin || 0) > filters.maxWalkMin) return false
       if (showFavoritesOnly && !favorites.has(String(t.id))) return false
-      if (filters.transit === 'suspect') {
-        if (!t.suspectMatch) return false
-        return true  // skip all other filters for suspect view — show them all
-      }
+      if (filters.transit === 'suspect' && !t.suspectMatch) return false
+
       if (q) {
         if (!(t.name || '').toLowerCase().includes(q) && !(t.station || '').toLowerCase().includes(q)) return false
       }
