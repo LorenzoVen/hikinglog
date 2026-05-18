@@ -10,11 +10,10 @@ export default async function handler(req, res) {
 
   try {
     const sb = createClient(url, key)
-    const { data, error } = await sb
-      .from('trailheads')
-      .select('*')
-      .eq('approved', true)
-      .order('total_min', { ascending: true })
+    const showSuspect = req.query?.admin === '1'
+    let query = sb.from('trailheads').select('*').order('total_min', { ascending: true })
+    if (!showSuspect) query = query.eq('approved', true)
+    const { data, error } = await query
 
     if (error) throw error
 
@@ -40,6 +39,8 @@ export default async function handler(req, res) {
       alltrails:       r.alltrails_url,
       seasonal:        r.seasonal || false,
       seasonNote:      r.season_note,
+      suspectMatch:    r.suspect_match || false,
+      suspectNote:     r.suspect_note,
     }))
 
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600')
