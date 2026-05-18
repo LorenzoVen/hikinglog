@@ -1,6 +1,6 @@
 import { useUnits } from '../context/UnitsContext'
 
-export default function Filters({ filters, onChange, count }) {
+export default function Filters({ filters, onChange, count, isAdmin = false }) {
   const { metric, toggle, miToUnit, distUnit } = useUnits()
   const set = (key, val) => onChange(prev => ({ ...prev, [key]: val }))
 
@@ -23,6 +23,7 @@ export default function Filters({ filters, onChange, count }) {
             <option value="Metro-North">Metro-North</option>
             <option value="LIRR">LIRR</option>
             <option value="NJ Transit">NJ Transit</option>
+            {isAdmin && <option value="suspect">⚠ River Crossing</option>}
           </select>
         </div>
 
