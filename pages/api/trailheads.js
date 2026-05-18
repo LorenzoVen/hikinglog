@@ -10,9 +10,15 @@ export default async function handler(req, res) {
 
   try {
     const sb = createClient(url, key)
-    const showSuspect = req.query?.admin === '1'
+    // suspect=1 → return unapproved suspect entries (admin use)
+    // default  → return approved entries only
+    const suspect = req.query?.suspect === '1'
     let query = sb.from('trailheads').select('*').order('total_min', { ascending: true })
-    if (!showSuspect) query = query.eq('approved', true)
+    if (suspect) {
+      query = query.eq('approved', false).eq('suspect_match', true)
+    } else {
+      query = query.eq('approved', true)
+    }
     const { data, error } = await query
 
     if (error) throw error
@@ -43,7 +49,7 @@ export default async function handler(req, res) {
       suspectNote:     r.suspect_note,
     }))
 
-    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600')
+    if (!suspect) res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600')
     res.status(200).json(mapped)
   } catch (e) {
     console.error('Trailheads API error:', e)
