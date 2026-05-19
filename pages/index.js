@@ -162,7 +162,7 @@ export default function Home() {
     const q = search.trim().toLowerCase()
     return trails.filter(t => {
       // River Crossing (admin only): show suspect entries only
-      if (filters.transit === 'suspect') return t.suspectMatch === true && t.approved !== true
+      if (filters.transit === 'suspect') return t.suspectMatch === true && t.approved !== false
 
       // All other filters: approved entries only
       if (t.approved !== true) return false
