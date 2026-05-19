@@ -12,7 +12,7 @@ export default async function handler(req, res) {
     const sb = createClient(url, key)
     // all=1 → return every row (admin use — both approved and suspect)
     // default → approved only
-    const showAll = req.query?.all === '1'
+    const all = req.query?.all === '1'
     let query = sb.from('trailheads').select('*').order('total_min', { ascending: true })
     if (!all) query = query.eq('approved', true)
     const { data, error } = await query
