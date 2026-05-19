@@ -61,12 +61,16 @@ export default function Home() {
   const listRef = useRef(null)
   const cardRefs = useRef({})
 
-  // ── Load approved trailheads once on mount ───────────────────────────────────
+  // ── Load trailheads ──────────────────────────────────────────────────────────
+  // Admin gets all rows (approved + suspect). Regular users get approved only.
+  // Depends on [user] so it re-fetches when login state changes.
   useEffect(() => {
     async function load() {
       setLoadingTrails(true)
       try {
-        const res = await fetch('/api/trailheads')
+        const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'lveneziani83@gmail.com'
+        const isAdminUser = user?.email === adminEmail
+        const res = await fetch(isAdminUser ? '/api/trailheads?all=1' : '/api/trailheads')
         if (!res.ok) throw new Error('Failed to load trailheads')
         setTrails(await res.json())
       } catch (e) {
@@ -76,21 +80,9 @@ export default function Home() {
       setLoadingTrails(false)
     }
     load()
-  }, [])
+  }, [user])
 
-  // ── When admin selects River Crossing, fetch suspect rows and add to trails ──
-  useEffect(() => {
-    if (filters.transit !== 'suspect') return
-    const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'lveneziani83@gmail.com'
-    if (user?.email !== adminEmail) return
-    fetch('/api/trailheads?all=1')
-      .then(r => r.ok ? r.json() : [])
-      .then(all => {
-        // Replace trails with full set — filter logic handles approved=false display
-        setTrails(all)
-      })
-      .catch(() => {})
-  }, [filters.transit, user])
+
 
   // ── Load user data ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -169,13 +161,15 @@ export default function Home() {
 
     const q = search.trim().toLowerCase()
     return trails.filter(t => {
+      // River Crossing (admin only): show suspect entries only
+      if (filters.transit === 'suspect') return t.suspectMatch === true
+
+      // All other filters: approved entries only
+      if (t.approved !== true) return false
+
       const total = (t.transitMin || 0) + (t.walkMin || 0)
       const lineStr = t.line || t.operator || ''
       const operatorStr = t.operator || ''
-      if (filters.transit === 'suspect') {
-        return t.suspectMatch === true
-      }
-      if (t.approved === false) return false  // only explicitly block approved=false rows
       if (filters.transit !== 'all') {
         const isBus = ['Bus', 'Coach', 'Trans-Bridge', 'Lakeland', 'Academy', 'Broadway'].some(k => lineStr.includes(k) || operatorStr.includes(k))
         if (filters.transit === 'Bus' && !isBus) return false
@@ -184,7 +178,6 @@ export default function Home() {
       if (total > filters.maxTotalMin) return false
       if ((t.walkMin || 0) > filters.maxWalkMin) return false
       if (showFavoritesOnly && !favorites.has(String(t.id))) return false
-
       if (q) {
         if (!(t.name || '').toLowerCase().includes(q) && !(t.station || '').toLowerCase().includes(q)) return false
       }
