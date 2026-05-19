@@ -162,7 +162,7 @@ export default function Home() {
     const q = search.trim().toLowerCase()
     return trails.filter(t => {
       // River Crossing (admin only): show suspect entries only
-      if (filters.transit === 'suspect') return t.suspectMatch === true && t.approved !== false
+      if (filters.transit === 'suspect') return t.suspectMatch === true && t.approved !== true
 
       // All other filters: approved entries only
       if (t.approved !== true) return false
@@ -187,7 +187,15 @@ export default function Home() {
 
   // Debug — remove after testing
   useEffect(() => {
-    console.log('[HikingLog] trails:', trails.length, 'filtered:', filtered.length, 'filter:', filters.transit)
+    const suspectRows = trails.filter(t => t.suspectMatch === true)
+    const approvedFalse = trails.filter(t => t.approved === false)
+    const approvedTrue = trails.filter(t => t.approved === true)
+    console.log('[HikingLog] trails total:', trails.length)
+    console.log('[HikingLog] approved=true:', approvedTrue.length)
+    console.log('[HikingLog] approved=false:', approvedFalse.length)
+    console.log('[HikingLog] suspectMatch=true:', suspectRows.length)
+    console.log('[HikingLog] filtered:', filtered.length, 'filter:', filters.transit)
+    if (suspectRows.length > 0) console.log('[HikingLog] sample suspect:', suspectRows[0])
   }, [trails, filtered, filters.transit])
 
   // ── Scroll selected card into view ──────────────────────────────────────────
