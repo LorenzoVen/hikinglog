@@ -192,6 +192,11 @@ export default function Home() {
     })
   }, [trails, filters, search, showFavoritesOnly, favorites])
 
+  // Debug — remove after testing
+  useEffect(() => {
+    console.log('[HikingLog] trails:', trails.length, 'filtered:', filtered.length, 'filter:', filters.transit)
+  }, [trails, filtered, filters.transit])
+
   // ── Scroll selected card into view ──────────────────────────────────────────
   function scrollToCard(id) {
     setTimeout(() => {
