@@ -61,14 +61,12 @@ export default function Home() {
   const listRef = useRef(null)
   const cardRefs = useRef({})
 
-  // ── Load trailheads ──────────────────────────────────────────────────────────
+  // ── Load approved trailheads once on mount ───────────────────────────────────
   useEffect(() => {
     async function load() {
       setLoadingTrails(true)
       try {
-        const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'lveneziani83@gmail.com'
-        const url = user?.email === adminEmail ? '/api/trailheads?all=1' : '/api/trailheads'
-        const res = await fetch(url)
+        const res = await fetch('/api/trailheads')
         if (!res.ok) throw new Error('Failed to load trailheads')
         setTrails(await res.json())
       } catch (e) {
@@ -78,7 +76,21 @@ export default function Home() {
       setLoadingTrails(false)
     }
     load()
-  }, [user])
+  }, [])
+
+  // ── When admin selects River Crossing, fetch suspect rows and add to trails ──
+  useEffect(() => {
+    if (filters.transit !== 'suspect') return
+    const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'lveneziani83@gmail.com'
+    if (user?.email !== adminEmail) return
+    fetch('/api/trailheads?all=1')
+      .then(r => r.ok ? r.json() : [])
+      .then(all => {
+        // Replace trails with full set — filter logic handles approved=false display
+        setTrails(all)
+      })
+      .catch(() => {})
+  }, [filters.transit, user])
 
   // ── Load user data ───────────────────────────────────────────────────────────
   useEffect(() => {
