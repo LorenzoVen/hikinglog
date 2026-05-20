@@ -46,7 +46,8 @@ export default async function handler(req, res) {
       suspectNote:     r.suspect_note,
     }))
 
-    if (!all) res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600')
+    if (all) res.setHeader('Cache-Control', 'no-store')
+    else res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600')
     res.status(200).json(mapped)
   } catch (e) {
     console.error('Trailheads API error:', e)
