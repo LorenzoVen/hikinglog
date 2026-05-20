@@ -73,6 +73,7 @@ export default function Home() {
       try {
         const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL
         const isAdminUser = user?.email === adminEmail
+        console.log('[FETCH] authLoading:', authLoading, 'user:', user?.email, 'isAdmin:', isAdminUser, 'url:', isAdminUser ? 'all=1' : 'approved only')
         const url = isAdminUser
           ? `/api/trailheads?all=1&t=${Date.now()}`
           : '/api/trailheads'
