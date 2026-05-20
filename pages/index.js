@@ -62,25 +62,32 @@ export default function Home() {
   const cardRefs = useRef({})
 
   // ── Load trailheads ──────────────────────────────────────────────────────────
-  // Admin gets all rows (approved + suspect). Regular users get approved only.
-  // Depends on [user] so it re-fetches when login state changes.
+  // Wait for auth to resolve (loading=false) before fetching.
+  // Admin gets all rows; regular users get approved only.
+  const { loading: authLoading } = useAuth()
   useEffect(() => {
+    if (authLoading) return  // wait until Supabase has resolved the session
+    let cancelled = false
     async function load() {
       setLoadingTrails(true)
       try {
-        const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'lveneziani83@gmail.com'
+        const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL
         const isAdminUser = user?.email === adminEmail
-        const res = await fetch(isAdminUser ? '/api/trailheads?all=1' : '/api/trailheads')
+        const url = isAdminUser
+          ? `/api/trailheads?all=1&t=${Date.now()}`
+          : '/api/trailheads'
+        const res = await fetch(url, { cache: isAdminUser ? 'no-store' : 'default' })
         if (!res.ok) throw new Error('Failed to load trailheads')
-        setTrails(await res.json())
+        if (!cancelled) setTrails(await res.json())
       } catch (e) {
         console.error('Trailheads load error:', e)
-        setTrails([])
+        if (!cancelled) setTrails([])
       }
-      setLoadingTrails(false)
+      if (!cancelled) setLoadingTrails(false)
     }
     load()
-  }, [user])
+    return () => { cancelled = true }
+  }, [authLoading, user])
 
 
 
@@ -272,7 +279,7 @@ export default function Home() {
   }
 
   const userInitial = user?.email?.[0]?.toUpperCase() || '?'
-  const isAdmin = user?.email === (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'lveneziani83@gmail.com')
+  const isAdmin = user?.email === (process.env.NEXT_PUBLIC_ADMIN_EMAIL)
   const plannedTrails = trails.filter(t => plannedIds.has(String(t.id)) && !doneIds.has(String(t.id)))
   const pastTrails    = trails.filter(t => doneIds.has(String(t.id)))
   const nudgeTrails   = pastTrails.filter(t => !reviewCounts[String(t.id)])

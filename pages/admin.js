@@ -3,7 +3,7 @@ import Head from 'next/head'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 
-const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'lveneziani83@gmail.com'
+const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL
 
 const SOURCES = {
   alltrails: { label: 'AllTrails', color: '#1c7c3c', bg: '#f0faf0' },
