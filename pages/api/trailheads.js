@@ -5,20 +5,23 @@ export default async function handler(req, res) {
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
   if (!url || !key) return res.status(200).json([])
 
   try {
     const sb = createClient(url, key)
-    // all=1 → return every row (admin use — both approved and suspect)
-    // default → approved only
-    const all = req.query?.all === '1'
-    console.log('[API] req.query:', JSON.stringify(req.query), 'all param:', req.query?.all, 'all bool:', all)
-    let query = sb.from('trailheads').select('*').order('total_min', { ascending: true })
-    if (!all) query = query.eq('approved', true)
-    const { data, error } = await query
 
+    // ?all=1 returns every row (admin use)
+    // default returns approved=true only
+    const showAll = req.query.all === '1'
+    console.log('[API trailheads] showAll:', showAll, 'query:', JSON.stringify(req.query))
+
+    let query = sb.from('trailheads').select('*').order('total_min', { ascending: true })
+    if (!showAll) query = query.eq('approved', true)
+
+    const { data, error } = await query
     if (error) throw error
+
+    console.log('[API trailheads] rows returned:', (data || []).length)
 
     const mapped = (data || []).map(r => ({
       id:              r.id,
@@ -42,16 +45,17 @@ export default async function handler(req, res) {
       alltrails:       r.alltrails_url,
       seasonal:        r.seasonal || false,
       seasonNote:      r.season_note,
-      approved:        r.approved || false,
-      suspectMatch:    r.suspect_match || false,
+      approved:        r.approved,
+      suspectMatch:    r.suspect_match,
       suspectNote:     r.suspect_note,
     }))
 
-    if (all) res.setHeader('Cache-Control', 'no-store')
+    if (showAll) res.setHeader('Cache-Control', 'no-store')
     else res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600')
+
     res.status(200).json(mapped)
   } catch (e) {
-    console.error('Trailheads API error:', e)
+    console.error('[API trailheads] error:', e.message)
     res.status(500).json({ error: e.message })
   }
 }
