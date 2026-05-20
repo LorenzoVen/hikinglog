@@ -279,7 +279,7 @@ export default function Home() {
   }
 
   const userInitial = user?.email?.[0]?.toUpperCase() || '?'
-  const isAdmin = user?.email === (process.env.NEXT_PUBLIC_ADMIN_EMAIL)
+  const isAdmin = !!process.env.NEXT_PUBLIC_ADMIN_EMAIL && user?.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL
   const plannedTrails = trails.filter(t => plannedIds.has(String(t.id)) && !doneIds.has(String(t.id)))
   const pastTrails    = trails.filter(t => doneIds.has(String(t.id)))
   const nudgeTrails   = pastTrails.filter(t => !reviewCounts[String(t.id)])
